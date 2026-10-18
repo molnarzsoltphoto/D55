@@ -1,6 +1,6 @@
 # Ellenőrzés
-- Motorteszt: 51/51 sikeres (node tests/allomas.test.cjs).
-- Valódi böngésző (headless Chromium, asztali és 390×844 mobil-emuláció): 20 ellenőrzés sikeres, JavaScript-hiba nélkül.
-- Ellenőrzött: Sárbogárdon engedélykérés, engedélyadás, A→T-V vágányút, külön jelzőállítás, behaladás, megállás, kijárati vágányút, indulás; Kurd teljes napi automata futtatása; menetrendi ablak; módválasztó.
-- Tíz állomáson (Sárbogárd, Rétszilas, Kurd, Pusztaszabolcs, Dombóvár, Budapest-Kelenföld, Budapest-Déli, Pécs, Ercsi, Százhalombatta) a teljes nap automata futtatása beragadás nélkül lefutott, maximális késés 8 perc alatt.
-- Nem történt: fizikai mobilteszt, éles GitHub Pages telepítés, a beolvasott menetrend teljes kézi egyeztetése a PDF-fel.
+- Motorteszt: 39/39 sikeres.
+- Állomási játék (D55-pult), headless Chromium 1626×948, valódi egérkattintásokkal: mind a 31 állomás, 108 sikeres forgatókönyv, 0 sikertelen; 14 kimaradt (nincs ilyen vonat).
+- KÖFI-oldal: vonalkép 31 állomással, 31 állomási képernyő, kattintás a vonalképről, engedély + vágányválasztás, vágányút és jelzőállítás a sötét képernyőn, bejáratás a választott vágányra, alsó gombsor – 13 ellenőrzés sikeres.
+- Nincs vízszintes görgetés 1626 px-en.
+- Nem történt: fizikai telefonos teszt, éles GitHub Pages-telepítés; a megjelenés hasonlóságát a fotókhoz vizuálisan nem tudom megítélni (a D55-táblánál az átlagszínt méréssel egyeztettem).
