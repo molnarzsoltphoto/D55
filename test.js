@@ -1,0 +1,45 @@
+
+const assert=require('node:assert/strict');
+const {Simulation,STATIONS,SB}=require('../forras/engine.js');
+let count=0;function check(value,msg){assert.ok(value,msg);count++;}
+let s=new Simulation(),t=s.trains[0];
+check(s.paused,'Szüneteltetve indul');
+check(s.request(t),'J001 engedélyt kér');
+check(s.next(t)===SB,'A cél Sárbogárd');
+check(!s.depart(t.id).ok,'Engedély nélkül nincs kijárat');
+s.auto=false;s.tick(10);
+check(t.phase==='station','Engedély nélkül nem indul');
+check(s.grant(t.id,'IV').ok,'Engedély IV. vágányra');
+check(s.trackBusy(SB,'IV'),'Fogadó vágány lefoglalva');
+check(!s.toggle(SB,'IV').ok,'Lefoglalt vágány nem zárható le');
+check(s.depart(t.id).ok,'Engedély után kijárat beállítható');
+s.tick(.1);check(t.phase==='running','Vonat elindul');
+check(!s.cancel(t.id).ok,'Elindult vonat engedélye nem törölhető');
+s.tick(30);check(t.phase==='entry','Bejárati vágányút nélkül a jelző előtt megáll');
+check(s.entry(t.id).ok,'Bejárati vágányút beállítható');s.tick(.1);
+check(t.phase==='station'&&t.at===SB&&t.track==='IV','Érkezés a kijelölt vágányra');
+check(!s.permissions[t.id],'Engedély érkezés után feloldva');
+check(Object.values(s.edges).every(id=>id!==t.id),'Állomásköz érkezés után szabad');
+let c=new Simulation();c.auto=false;
+check(c.grant(c.trains[0].id,'III').ok,'Új engedély');
+check(c.cancel(c.trains[0].id).ok,'Indulás előtti visszavonás');
+check(!c.trackBusy(SB,'III'),'Visszavonás felszabadítja a fogadóvágányt');
+check(c.toggle(SB,'III').ok,'Szabad vágány lezárható');
+check(!c.grant(c.trains[0].id,'III').ok,'Lezárt vágányra nincs engedély');
+let x=new Simulation();x.trains=[];x.permissions={};x.edges={};x.auto=false;
+let a=x.add(17,1,360),b=x.add(SB,-1,360);
+check(x.grant(a.id,'III').ok,'Egyvágányú engedély');
+check(!x.grant(b.id,'II').ok,'Ellenmenet kizárása');
+check(x.edge(0,1,1)!==x.edge(0,1,-1),'Kétvágányú modell irányonként külön');
+check(x.edge(17,18,1)===x.edge(17,18,-1),'Egyvágányú modell közös kizárás');
+let m=new Simulation();m.trains=[];m.auto=false;m.permissions={};m.edges={};let v=m.add(19,1,360);
+check(m.next(v)===21,'Sáregres megállóhely nem engedélyező állomás');
+check(v.plan.some(p=>p.station===20),'Megállóhely szerepel a tesztmenetrendben');
+let z=new Simulation();z.trains=[];z.auto=false;z.permissions={};z.edges={};let q=z.add(0,1,360);
+for(let i=0;i<10000&&q.phase!=='done';i++){if(z.request(q))z.grant(q.id);if(z.permissions[q.id]){z.entry(q.id);if(q.phase==='station')z.depart(q.id);}z.tick(.1);}
+check(q.phase==='done'&&q.at===STATIONS.length-1,'Teljes Budapest-Déli–Pécs futás célba ér');
+let positions=q.history.map(h=>h.station);check(positions.length===STATIONS.filter(s=>s.control).length-1,'Minden közbenső játékállomás érintve');
+check(q.plan.every((p,i,arr)=>i===0||p.arr>=arr[i-1].dep),'Időben rendezett tesztmenetrend');
+let saved=JSON.stringify(z),loaded=Object.assign(new Simulation(),JSON.parse(saved));
+check(loaded.trains[0].phase==='done'&&typeof loaded.tick==='function','Mentett állapot visszaállítható');
+console.log(JSON.stringify({checks:count,stations:STATIONS.length,controlStations:STATIONS.filter(s=>s.control).length,fullRunTime:z.time,complete:q.phase==='done'}));
