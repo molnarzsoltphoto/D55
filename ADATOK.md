@@ -1,40 +1,16 @@
-# Adatforrások és korlátok
-
-## Útvonaladatok
-
-Az útvonal nevei és távolságai a korábbi játékprototípusból származnak, amelynek forrása:
-https://hu.wikipedia.org/wiki/Budapest%E2%80%93P%C3%A9cs-vas%C3%BAtvonal
-
-Attribúció: a Wikipédia-szócikk szerzői. A származtatott útvonaladatok a szócikk aktuális CC BY-SA licencfeltételei szerint kezelendők. A szerzői előzmények a szócikk laptörténetében találhatók.
-
-A Déli–Kelenföld részhez használt -4 km modellérték nem hiteles vasúti szelvényezés. A távolságadatok nem üzemi felhasználásra valók.
-Az ercsi régi nyomvonal egyszerűsített pontsorát használjuk. Nincs külön elkerülő ág vagy Iváncsa forgalmi kitérő. A csatlakozó vonalak hiányoznak.
-A 47 útvonalpont és a 31 vezérlési pont a játék tartalma, nem hivatalos statisztikai vagy üzemi darabszám.
-A vezérlési pont besorolás sem mindenhol infrastruktúra-hitelesített.
-
-## Állomási rajzok
-
-Sárbogárdon a II–VIII. jelölésű vágányok szerepelnek, nem a teljes állomás. A korábbi állomási tájékozódás egyik dokumentuma:
-https://www.mavcsoport.hu/sites/default/files/upload/page/sarbogard.pdf
-
-A régi ÁVU nem bizonyítja a mai állapotot. Ebben a kiadásban a vágányhosszakat nem jelenítjük meg. A vágánykapcsolatok, peronok és jelzők rajza sematikus; a KI/BE jelölések játékjelzések, nem valós jelzőazonosítók.
-Minden más állomás háromvágányos sablont kapott. Ez nem a valós vágányszámot állítja.
+# Adatok és források
 
 ## Menetrend
+MÁV-START / MÁV, 2025–2026. évi belföldi vasúti közszolgáltatási menetrend, érvényes 2026. augusztus 31-től december 12-ig (a feltöltött PDF-példány szerint, 40a: 284–297. oldal, 40: 298–317. oldal).
+Feldolgozás: szövegkoordináták alapján oszlop–sor hozzárendelés. Az "ó" jelölésű sor érkezési időt jelent, az azonos állomás többi sora indulást. Az áthaladás jelei (ĉ) nem kapnak időt.
+A PDF nem tartalmaz hétköznapi/hétvégi jelölést; a közlekedési korlátozások lábjegyzetei figyelmen kívül maradtak.
+Az azonos időrendű, eltérő számú vonatok (pl. 4110 és 4220) egy vonatként szerepelnek.
 
-A J001 stb. vonatok és időpontok kitalált tesztadatok. 65 km/h modellsebesség, közbenső megállóhelyenként 0,5 perc és játékállomásonként 1 perc tartózkodás alapján készülnek.
-Hivatalos 2025–2026-os MÁV-menetrend és közlekedésinap-naptár NINCS importálva.
-A következő tartalmi fejlesztés forrása lehet a 40a és 40 menetrendi tábla:
-https://www.mavcsoport.hu/mav-szemelyszallitas/belfoldi-utazas/2025-2026-evi-belfoldi-vasuti-menetrend
+## Vágányadatok
+ÁVU-k: https://www.mavcsoport.hu/sites/default/files/upload/page/ – sarbogard_0.pdf, retszilas.pdf, sarosd.pdf, kurd.pdf, vasarosdombo.pdf, bukkosd.pdf, ercsi.pdf, szazhalombatta.pdf, godisa.pdf
+A fogadóvágányok és hosszaik átvezetve; a mellékvágányok, kizárt vágányok és csonka vágányok kimaradtak. A kétvágányú szakaszok átmenő vágányainak iránya nem igazolt.
 
-## Szimuláció
-
-- Engedély nélkül nincs indulás; a bejárati vágányút ettől külön művelet.
-- Az engedély azonnal lefoglalja a modell-állomásközt és a fogadóvágányt.
-- Északon irányonként külön állomásköz, délebbre közös egyvágányú kizárás működik.
-- Nincs valós térközi követés, külön váltókezelés, oldalvédelem, tolatás vagy teljes D55-függőségrendszer.
-- A vonatok pontszerűek; a megállóhelyi részidők csak az összes menetidőben érvényesülnek. A tényleges érkezési napló a vezérlési pontokon készül.
-- A különböző irányú bejáratok kezelése konzervatív, nem teljes állomási vágányút-kizárási mátrix.
-- Hibás forgalomszervezéssel tartós várakozás vagy patthelyzet alakítható ki.
-
-A projekt játékprototípus, nem vasútüzemi vagy oktatási rendszer.
+## Becslések
+- Áthaladási időpontok: a két szomszédos menetrendi megálló között az állomások km-értéke szerint lineárisan interpolálva.
+- Az útvonal km-adatai közelítők (Wikipédia-alapú prototípus).
+- Játéksablonos állomások: vágányszám a napi forgalomból (3–6).
