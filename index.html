@@ -5263,4 +5263,952 @@ JavaScript szintaktikai teszt; 239 egyedi vonatleírás; idő- és állomássorr
 Motorpróbák: KÖFI-automata, kézi fogadóállomás védelme, kézi indulóállomás védelme, Godisa kézi/automata kezelése, ellenirány kizárása, fővonali átadás, önkényes visszafordítás tiltása.
 A területválasztó és a kész index.html böngészős ellenőrzésének eredménye külön a tesztjelentésben.
 Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitelesítést.
-</pre><button onclick="this.closest('dialog').close()">Bezárás</button></dialog></body></html>
+</pre><button onclick="this.closest('dialog').close()">Bezárás</button></dialog>
+<script id="v40-forward-permissions">
+(function () {
+  function applyForwardUpdate() {
+    // MOTOR: előreengedélyezés és átmenővágány-beállítás.
+    (() => {
+      const P = Simulation.prototype;
+      if (P._forwardPermissionPatch) return;
+      P._forwardPermissionPatch = true;
+
+      const oldGrant = P.grant;
+      const oldBusy = P.busy;
+      const oldTick = P.tick;
+      const oldRevoke = P.revoke;
+      const oldDirection = AutomaticBlocks.prototype.setDirection;
+
+      P.forwardState = function () {
+        this.forwardPermissions ||= {};
+        this.throughTracks ||= {};
+        this.forwardLimit ??= 3;
+      };
+
+      P.throughTrack = function (station) {
+        this.forwardState();
+
+        const tracks = STATIONS[station]?.tracks || [];
+        const configured = this.throughTracks[station];
+
+        if (tracks.includes(configured)) return configured;
+
+        // Játékbeli alapértékek, nem hitelesített besorolások.
+        const preset =
+          station === 37 ? "III" :
+          station === 18 ? "IV" :
+          "II";
+
+        return tracks.includes(preset) ? preset : tracks[0];
+      };
+
+      P.setThroughTrack = function (station, track) {
+        this.forwardState();
+
+        if (!STATIONS[station]?.tracks.includes(track)) {
+          return {
+            ok: false,
+            msg: "Nem létező vágány."
+          };
+        }
+
+        this.throughTracks[station] = track;
+        return { ok: true };
+      };
+
+      P.isThrough = function (train, station) {
+        if (train.branchManaged) return false;
+
+        const point = train.plan?.find(
+          p => p.station === station
+        );
+
+        return (
+          train.passStations?.includes(station) ||
+          point?.stop === false ||
+          point?.source === false
+        );
+      };
+
+      P.permissionList = function (id) {
+        this.forwardState();
+
+        return [
+          this.permissions[id],
+          ...(this.forwardPermissions[id] || [])
+        ].filter(Boolean);
+      };
+
+      P.departureTrack = function (train, permission) {
+        if (permission.from === train.at) {
+          return train.track;
+        }
+
+        return this.permissionList(train.id).find(
+          p => p.to === permission.from
+        )?.track;
+      };
+
+      P.busy = function (station, track, except) {
+        this.forwardState();
+
+        const futureReservation = Object.entries(
+          this.forwardPermissions
+        ).some(([id, list]) =>
+          id !== except &&
+          list.some(p =>
+            p.to === station &&
+            p.track === track
+          )
+        );
+
+        return (
+          futureReservation ||
+          oldBusy.call(this, station, track, except)
+        );
+      };
+
+      P.promotePermissions = function () {
+        this.forwardState();
+
+        for (const train of this.trains) {
+          const list = this.forwardPermissions[train.id];
+
+          if (
+            train.phase !== "parked" ||
+            this.permissions[train.id] ||
+            !list?.length
+          ) {
+            continue;
+          }
+
+          if (list[0].from !== train.at) continue;
+
+          this.permissions[train.id] = list.shift();
+
+          if (this.isThrough(train, train.at)) {
+            const point = train.plan?.find(
+              p => p.station === train.at
+            );
+
+            train.dep = Math.max(
+              this.time,
+              point?.arr ?? this.time
+            );
+          }
+        }
+      };
+
+      P.grant = function (id, track) {
+        this.promotePermissions();
+
+        if (this.permissions[id]) {
+          return {
+            ok: false,
+            msg: "A következő állomásra már van engedély."
+          };
+        }
+
+        const train = this.trains.find(t => t.id === id);
+
+        if (!train) {
+          return {
+            ok: false,
+            msg: "Nincs ilyen vonat."
+          };
+        }
+
+        const to = this.next(train);
+
+        if (to === null) {
+          return {
+            ok: false,
+            msg: "Nincs következő állomás."
+          };
+        }
+
+        return oldGrant.call(
+          this,
+          id,
+          track || this.throughTrack(to)
+        );
+      };
+
+      P.aheadCandidate = function (id) {
+        const train = this.trains.find(t => t.id === id);
+
+        if (
+          !train ||
+          train.finished ||
+          train.branchManaged
+        ) {
+          return null;
+        }
+
+        const list = this.permissionList(id);
+        const tail = list.at(-1);
+
+        if (
+          !tail ||
+          list.length >= this.forwardLimit + 1 ||
+          !this.isThrough(train, tail.to)
+        ) {
+          return null;
+        }
+
+        const to = this.next({
+          ...train,
+          at: tail.to
+        });
+
+        return to === null
+          ? null
+          : { from: tail.to, to };
+      };
+
+      P.grantAhead = function (id, track) {
+        this.forwardState();
+        this.ensureBlocks();
+
+        const train = this.trains.find(t => t.id === id);
+        const next = this.aheadCandidate(id);
+
+        if (!next) {
+          return {
+            ok: false,
+            msg:
+              "Innen nincs további áthaladó engedély, " +
+              "vagy elérted az előrekészítés határát."
+          };
+        }
+
+        track ||= this.throughTrack(next.to);
+
+        if (
+          !STATIONS[next.to].tracks.includes(track) ||
+          this.closed[`${next.to}:${track}`] ||
+          this.busy(next.to, track, id)
+        ) {
+          return {
+            ok: false,
+            msg:
+              "A választott fogadóvágány foglalt, " +
+              "lezárt vagy nem létezik."
+          };
+        }
+
+        const section = this.blockSystem.section(
+          next.from,
+          next.to
+        );
+
+        if (!section) {
+          return {
+            ok: false,
+            msg: "Nincs modellezett állomásköz."
+          };
+        }
+
+        let lane = section.lanes.findIndex(
+          l => l.direction === train.dir
+        );
+
+        if (lane < 0 && this.auto) {
+          for (let i = 0; i < section.lanes.length; i++) {
+            const result = this.blockSystem.setDirection(
+              section.id,
+              i,
+              train.dir,
+              this
+            );
+
+            if (result.ok) {
+              lane = i;
+              break;
+            }
+          }
+        }
+
+        if (lane < 0) {
+          return {
+            ok: false,
+            msg:
+              "A további állomásköz menetirányát " +
+              "előbb állítsd megfelelőre."
+          };
+        }
+
+        const key = `${section.id}/${lane}/${id}`;
+
+        const permission = {
+          id,
+          from: next.from,
+          to: next.to,
+          track,
+          key,
+          section: section.id,
+          lane
+        };
+
+        (this.forwardPermissions[id] ||= []).push(permission);
+        this.edges[key] = id;
+
+        this.log(
+          `${id}: előreengedély ` +
+          `${STATIONS[permission.from].name} → ` +
+          `${STATIONS[permission.to].name}, ` +
+          `${track}. vágány.`
+        );
+
+        return { ok: true };
+      };
+
+      P.describeRoute = function (station, start, goal) {
+        let track, dir, kind;
+
+        if (start === "A" && goal.startsWith("KR-")) {
+          track = goal.slice(3);
+          dir = 1;
+          kind = "in";
+        } else if (
+          start === "B" &&
+          goal.startsWith("KL-")
+        ) {
+          track = goal.slice(3);
+          dir = -1;
+          kind = "in";
+        } else if (
+          start.startsWith("KR-") &&
+          goal === "VR"
+        ) {
+          track = start.slice(3);
+          dir = 1;
+          kind = "out";
+        } else if (
+          start.startsWith("KL-") &&
+          goal === "VL"
+        ) {
+          track = start.slice(3);
+          dir = -1;
+          kind = "out";
+        } else {
+          return null;
+        }
+
+        if (!STATIONS[station].tracks.includes(track)) {
+          return null;
+        }
+
+        const train = this.trains.find(t =>
+          !t.finished &&
+          !t.branchManaged &&
+          t.dir === dir &&
+          this.permissionList(t.id).some(p =>
+            kind === "in"
+              ? p.to === station && p.track === track
+              : p.from === station &&
+                this.departureTrack(t, p) === track &&
+                (t.at !== station || t.phase === "parked")
+          )
+        );
+
+        return {
+          at: station,
+          start,
+          goal,
+          track,
+          dir,
+          kind,
+          side:
+            kind === "in"
+              ? (dir === 1 ? "L" : "R")
+              : (dir === 1 ? "R" : "L"),
+          train: train?.id
+        };
+      };
+
+      P.routePermission = function (route) {
+        return this.permissionList(route.train).find(p =>
+          route.kind === "in"
+            ? p.to === route.at
+            : p.from === route.at
+        );
+      };
+
+      P.clearSignal = function (station, signal) {
+        const route = this.getRoute(station, signal);
+
+        const train =
+          route &&
+          this.trains.find(t => t.id === route.train);
+
+        const permission =
+          route &&
+          this.routePermission(route);
+
+        if (!route || !train || !permission) {
+          return {
+            ok: false,
+            msg:
+              "Hiányzik a vágányút, a vonat " +
+              "vagy az engedély."
+          };
+        }
+
+        if (route.releaseAt) {
+          return {
+            ok: false,
+            msg: "Időzített oldás folyamatban."
+          };
+        }
+
+        if (
+          route.kind === "in" &&
+          this.busy(station, route.track, train.id)
+        ) {
+          return {
+            ok: false,
+            msg: "A fogadóvágány foglalt."
+          };
+        }
+
+        const active = this.permissions[train.id];
+
+        if (
+          (
+            route.kind === "in" &&
+            active?.to === station &&
+            train.phase === "entering"
+          ) ||
+          (
+            route.kind === "out" &&
+            train.at === station &&
+            train.phase === "leaving"
+          )
+        ) {
+          return {
+            ok: false,
+            msg: "A vonat már meghaladta ezt a jelzőt."
+          };
+        }
+
+        this.ensureBlocks();
+        this.blockSystem.refresh(this);
+
+        if (
+          route.kind === "out" &&
+          !this.blockSystem.canEnter(
+            permission,
+            train.dir,
+            train.id
+          )
+        ) {
+          return {
+            ok: false,
+            msg:
+              "Az első térköz foglalt, " +
+              "vagy a menetirány nem megfelelő."
+          };
+        }
+
+        route.clear = true;
+        route.everCleared = true;
+        route.releaseAt = null;
+
+        return { ok: true };
+      };
+
+      P.cancelRoute = function (station, signal) {
+        const route = this.getRoute(station, signal);
+
+        const train =
+          route &&
+          this.trains.find(t => t.id === route.train);
+
+        if (!route) {
+          return {
+            ok: false,
+            msg: "Nincs törölhető vágányút."
+          };
+        }
+
+        if (
+          (
+            route.kind === "in" &&
+            this.permissions[route.train]?.to === station &&
+            train?.phase === "entering"
+          ) ||
+          (
+            route.kind === "out" &&
+            train?.at === station &&
+            train.phase === "leaving"
+          )
+        ) {
+          return {
+            ok: false,
+            msg:
+              "A vonat ezen a vágányúton halad; " +
+              "oldás tiltva."
+          };
+        }
+
+        if (route.clear) {
+          return {
+            ok: false,
+            msg: "Előbb Megállj-kezelés szükséges."
+          };
+        }
+
+        if (route.everCleared) {
+          route.releaseAt = this.time + 3;
+        } else {
+          delete this.routes[
+            this.routeId(station, signal)
+          ];
+        }
+
+        return { ok: true };
+      };
+
+      P.permissionRoute = function (
+        id,
+        from,
+        kind,
+        clear = false
+      ) {
+        this.promotePermissions();
+
+        const train = this.trains.find(t => t.id === id);
+
+        const permission = this.permissionList(id).find(
+          p => p.from === from
+        );
+
+        if (!train || !permission) {
+          return {
+            ok: false,
+            msg: "Nincs ilyen engedély."
+          };
+        }
+
+        const station =
+          kind === "in"
+            ? permission.to
+            : permission.from;
+
+        const track =
+          kind === "in"
+            ? permission.track
+            : this.departureTrack(train, permission);
+
+        const start =
+          kind === "in"
+            ? (train.dir === 1 ? "A" : "B")
+            : (train.dir === 1 ? "KR-" : "KL-") + track;
+
+        const goal =
+          kind === "in"
+            ? (train.dir === 1 ? "KR-" : "KL-") + track
+            : (train.dir === 1 ? "VR" : "VL");
+
+        const existing = this.getRoute(station, start);
+
+        if (existing && existing.train !== id) {
+          return {
+            ok: false,
+            msg:
+              "A jelző másik vonat " +
+              "vágányútjához tartozik."
+          };
+        }
+
+        if (clear) {
+          return this.clearSignal(station, start);
+        }
+
+        return existing
+          ? { ok: true }
+          : this.setRoute(station, start, goal);
+      };
+
+      P.revokeAhead = function (id, from) {
+        this.forwardState();
+
+        const list = this.forwardPermissions[id] || [];
+        const index = list.findIndex(
+          p => p.from === from
+        );
+
+        if (index < 0) {
+          return {
+            ok: false,
+            msg: "Ez nem visszavonható előreengedély."
+          };
+        }
+
+        const affected = list.slice(index);
+
+        const hasRoute = Object.values(this.routes).some(
+          route =>
+            route.train === id &&
+            affected.some(p =>
+              route.kind === "in"
+                ? route.at === p.to
+                : route.at === p.from
+            )
+        );
+
+        if (hasRoute) {
+          return {
+            ok: false,
+            msg:
+              "Előbb állítsd Megálljra és oldd fel " +
+              "az érintett vágányutakat."
+          };
+        }
+
+        affected.forEach(p => delete this.edges[p.key]);
+        list.splice(index);
+
+        return { ok: true };
+      };
+
+      P.revoke = function (id) {
+        this.forwardState();
+
+        if (this.forwardPermissions[id]?.length) {
+          return {
+            ok: false,
+            msg:
+              "Előbb a távolabbi " +
+              "előreengedélyeket vond vissza."
+          };
+        }
+
+        return oldRevoke.call(this, id);
+      };
+
+      AutomaticBlocks.prototype.setDirection = function (
+        id,
+        lane,
+        dir,
+        simulation
+      ) {
+        simulation.forwardState();
+
+        const currentLane =
+          this.sections[id]?.lanes[lane];
+
+        const reserved = Object.values(
+          simulation.forwardPermissions
+        ).flat().some(p =>
+          p.section === id &&
+          p.lane === lane
+        );
+
+        if (
+          currentLane &&
+          currentLane.direction !== dir &&
+          reserved
+        ) {
+          return {
+            ok: false,
+            msg:
+              "Menetirányváltás tiltva: " +
+              "erre a szakaszra előreengedély van."
+          };
+        }
+
+        return oldDirection.call(
+          this,
+          id,
+          lane,
+          dir,
+          simulation
+        );
+      };
+
+      P.autoForward = function () {
+        this.forwardState();
+        if (!this.auto) return;
+
+        const owns = id =>
+          typeof playerOwns === "function" &&
+          playerOwns(this, id);
+
+        for (const train of this.trains) {
+          if (train.finished || train.branchManaged) {
+            continue;
+          }
+
+          for (
+            let n = 0;
+            n < this.forwardLimit;
+            n++
+          ) {
+            const candidate =
+              this.aheadCandidate(train.id);
+
+            if (
+              !candidate ||
+              owns(candidate.to) ||
+              !this.grantAhead(train.id).ok
+            ) {
+              break;
+            }
+          }
+
+          for (
+            const permission of
+            this.forwardPermissions[train.id] || []
+          ) {
+            if (!owns(permission.to)) {
+              this.permissionRoute(
+                train.id,
+                permission.from,
+                "in"
+              );
+
+              this.permissionRoute(
+                train.id,
+                permission.from,
+                "in",
+                true
+              );
+            }
+
+            if (!owns(permission.from)) {
+              this.permissionRoute(
+                train.id,
+                permission.from,
+                "out"
+              );
+
+              this.permissionRoute(
+                train.id,
+                permission.from,
+                "out",
+                true
+              );
+            }
+          }
+        }
+      };
+
+      P.tick = function (dt) {
+        this.forwardState();
+        this.promotePermissions();
+
+        const result = oldTick.call(this, dt);
+
+        this.promotePermissions();
+        this.autoForward();
+
+        for (const route of Object.values(this.routes)) {
+          if (
+            route.kind !== "out" ||
+            !route.clear
+          ) {
+            continue;
+          }
+
+          const permission =
+            this.routePermission(route);
+
+          const train = this.trains.find(
+            t => t.id === route.train
+          );
+
+          if (
+            permission &&
+            train &&
+            !this.blockSystem.canEnter(
+              permission,
+              train.dir,
+              train.id
+            )
+          ) {
+            route.clear = false;
+          }
+        }
+
+        return result;
+      };
+    })();
+
+    // FELÜLET: külön várakozó és megadott engedélylista.
+    (() => {
+      function install() {
+        if (
+          window.ForwardPanel ||
+          typeof sim === "undefined" ||
+          typeof render !== "function"
+        ) {
+          return;
+        }
+
+        if (typeof sim.permissionList !== "function") {
+          console.error(
+            "Előbb a motormódosítást töltsd be."
+          );
+          return;
+        }
+
+        const escape = value =>
+          String(value ?? "").replace(
+            /[&<>"']/g,
+            c => ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;"
+            }[c])
+          );
+
+        const stationName = id =>
+          id == null
+            ? "Komló irányú modellhatár"
+            : STATIONS[id].name;
+
+        const oldPanel = document
+          .getElementById("requests")
+          ?.closest("section");
+
+        if (!oldPanel) {
+          console.error(
+            "Nem található az eredeti requests panel."
+          );
+          return;
+        }
+
+        const root = document.createElement("div");
+        root.id = "forward-panels";
+
+        root.innerHTML = `
+          <section class="card">
+            <h2>
+              Engedélyre vár ·
+              <span id="fp-wait-count">0</span>
+            </h2>
+            <div id="fp-wait"></div>
+          </section>
+
+          <section class="card" style="margin-top:14px">
+            <h2>
+              Megadott engedélyek ·
+              <span id="fp-granted-count">0</span>
+            </h2>
+            <div id="fp-granted"></div>
+          </section>
+
+          <section class="card" style="margin-top:14px">
+            <h2>Átmenő vágány</h2>
+            <div id="fp-settings" class="body"></div>
+          </section>
+        `;
+
+        oldPanel.before(root);
+        oldPanel.hidden = true;
+
+        const style = document.createElement("style");
+
+        style.textContent = `
+          #forward-panels button {
+            margin: 3px;
+            padding: 6px;
+          }
+
+          #forward-panels .request {
+            padding: 10px;
+            border-bottom: 1px solid #526978;
+          }
+
+          .fp-future {
+            color: #f1c36a;
+          }
+
+          #fp-settings select {
+            margin: 6px;
+          }
+        `;
+
+        document.head.append(style);
+
+        function finish(result) {
+          if (
+            !result?.ok &&
+            typeof toast === "function"
+          ) {
+            toast(result?.msg || "Sikertelen kezelés.");
+          }
+
+          render();
+        }
+
+        function selectedTrack(to) {
+          const select = document.getElementById("track");
+
+          return (
+            to === sim.selected &&
+            select &&
+            select.value !== "__through__"
+          )
+            ? select.value
+            : undefined;
+        }
+
+        const api = window.ForwardPanel = {
+          grant(id, ahead = false) {
+            const train = sim.trains.find(
+              t => t.id === id
+            );
+
+            const to = ahead
+              ? sim.aheadCandidate(id)?.to
+              : train && sim.next(train);
+
+            finish(
+              ahead
+                ? sim.grantAhead(id, selectedTrack(to))
+                : sim.grant(id, selectedTrack(to))
+            );
+          },
+
+          route(id, from, kind, clear = false) {
+            finish(
+              sim.permissionRoute(id, from, kind, clear)
+            );
+          },
+
+          revoke(id, from, future) {
+            finish(
+              future
+                ? sim.revokeAhead(id, from)
+                : sim.revoke(id)
+            );
+          },
+
+          focus(station) {
+            if (typeof selectStation === "function") {
+              selectStation(station);
+            }
+          },
+
+          through(track) {
+            finish(
+              sim.setThroughTrack(sim.selected, track)
+            );
+          },
+
+          branch(action, id) {
+            if (typeof GodisaBranch === "undefined") {
+              return;
+            }
+
+            finish(
+              action === "grant"
+                ? GodisaBranch.grant(sim, id)
+                : action === "route"
+                  ? GodisaBranch.route(sim, id)
+</body></html>
