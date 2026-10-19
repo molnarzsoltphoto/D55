@@ -6566,4 +6566,1354 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
   }
 })();
 </script>
+ <script id="v40-forward-v2">
+(() => {
+  function install() {
+    if (
+      typeof Simulation === "undefined" ||
+      typeof sim === "undefined"
+    ) {
+      return fail();
+    }
+
+    const P = Simulation.prototype;
+
+    if (P._forwardV2) return;
+
+    if (
+      !P.permissionList ||
+      !P.grantAhead ||
+      !window.ForwardPanel
+    ) {
+      return fail();
+    }
+
+    P._forwardV2 = true;
+
+    const oldState = P.forwardState;
+    const oldGrant = P.grant;
+    const oldAhead = P.grantAhead;
+    const oldRequest = P.request;
+
+    P.forwardState = function () {
+      oldState.call(this);
+
+      // Első engedély + két további = három állomás.
+      this.forwardLimit = 2;
+    };
+
+    const owns = (simulation, station) =>
+      typeof playerOwns === "function" &&
+      playerOwns(simulation, station);
+
+    // Átmenő vágány előnyben, utána más szabad fogadóvágány.
+    P.freeReceivingTrack = function (station, trainId) {
+      const preferred = this.throughTrack(station);
+
+      const tracks = [
+        preferred,
+        ...STATIONS[station].tracks.filter(
+          track => track !== preferred
+        )
+      ];
+
+      return tracks.find(track =>
+        !this.closed[`${station}:${track}`] &&
+        !this.busy(station, track, trainId) &&
+        !Object.values(this.routes).some(route =>
+          route.at === station &&
+          route.track === track &&
+          route.train !== trainId
+        )
+      ) || null;
+    };
+
+    // Az előrekérés korábban is megadható.
+    // A vonat indulási idejét ez nem változtatja meg.
+    P.request = function (train) {
+      if (this._earlyRequest === train?.id) {
+        return (
+          !train.finished &&
+          !train.branchManaged &&
+          train.phase === "parked" &&
+          !this.permissions[train.id] &&
+          this.next(train) !== null
+        );
+      }
+
+      return oldRequest.call(this, train);
+    };
+
+    P.grant = function (id, track) {
+      const train = this.trains.find(t => t.id === id);
+      const to = train && this.next(train);
+
+      if (
+        train &&
+        to !== null &&
+        !track &&
+        this.auto &&
+        !owns(this, to)
+      ) {
+        track = this.freeReceivingTrack(to, id);
+
+        if (!track) {
+          return {
+            ok: false,
+            msg: "Nincs szabad, nem lezárt fogadóvágány."
+          };
+        }
+      }
+
+      return oldGrant.call(this, id, track);
+    };
+
+    // Már nem csak az áthaladó vonatoknak lehet előrekérni.
+    P.aheadCandidate = function (id) {
+      const train = this.trains.find(t => t.id === id);
+
+      if (
+        !train ||
+        train.finished ||
+        train.branchManaged
+      ) {
+        return null;
+      }
+
+      const list = this.permissionList(id);
+
+      if (list.length >= 3) return null;
+
+      if (
+        !list.length &&
+        train.phase !== "parked"
+      ) {
+        return null;
+      }
+
+      const from = list.length
+        ? list.at(-1).to
+        : train.at;
+
+      const to = this.next({
+        ...train,
+        at: from
+      });
+
+      return to === null
+        ? null
+        : {
+            from,
+            to,
+            initial: list.length === 0
+          };
+    };
+
+    P.grantAhead = function (id, track) {
+      const candidate = this.aheadCandidate(id);
+
+      if (!candidate) {
+        return {
+          ok: false,
+          msg:
+            "Nincs további modellezett állomás, " +
+            "vagy már három állomásra van engedély."
+        };
+      }
+
+      if (
+        !track &&
+        this.auto &&
+        !owns(this, candidate.to)
+      ) {
+        track = this.freeReceivingTrack(
+          candidate.to,
+          id
+        );
+
+        if (!track) {
+          return {
+            ok: false,
+            msg: "Nincs szabad, nem lezárt fogadóvágány."
+          };
+        }
+      }
+
+      if (!candidate.initial) {
+        return oldAhead.call(this, id, track);
+      }
+
+      const previous = this._earlyRequest;
+      this._earlyRequest = id;
+
+      try {
+        return this.grant(id, track);
+      } finally {
+        this._earlyRequest = previous;
+      }
+    };
+
+    // Godisa automatikus csatlakozó fogadása se ragadjon
+    // a III. vágányhoz, ha másik fogadóvágány szabad.
+    if (typeof GodisaBranch !== "undefined") {
+      const grantBranch = GodisaBranch.grant;
+      const advanceBranch = GodisaBranch.advance;
+
+      GodisaBranch.grant = function (simulation, id) {
+        const train = this.train(simulation, id);
+
+        if (
+          !train ||
+          train.branchDirection !== "in" ||
+          !simulation.auto ||
+          owns(simulation, 37)
+        ) {
+          return grantBranch.call(this, simulation, id);
+        }
+
+        const state = this.state(simulation);
+
+        if (
+          train.finished ||
+          train.phase !== "branchRequest"
+        ) {
+          return {
+            ok: false,
+            msg: "A csatlakozó menet most nem engedélyezhető."
+          };
+        }
+
+        if (state.edge) {
+          return {
+            ok: false,
+            msg: "A csatlakozó szakasz foglalt vagy lefoglalt."
+          };
+        }
+
+        const track = simulation.freeReceivingTrack(37, id);
+
+        if (!track) {
+          return {
+            ok: false,
+            msg: "Godisán nincs szabad fogadóvágány."
+          };
+        }
+
+        train.track = track;
+        train._automaticBranchTrack = track;
+
+        state.edge = id;
+        state.reserved = { id, track };
+
+        train.branchPermission = true;
+        train.phase = "branchLineIn";
+        train.branchSince = simulation.time;
+
+        return { ok: true };
+      };
+
+      GodisaBranch.advance = function (simulation) {
+        advanceBranch.call(this, simulation);
+
+        for (const train of simulation.trains) {
+          if (
+            !train._automaticBranchTrack ||
+            train.phase !== "parked"
+          ) {
+            continue;
+          }
+
+          const log = simulation.logs.find(entry =>
+            entry.msg.startsWith(train.id + ":") &&
+            entry.msg.includes("beért Godisára")
+          );
+
+          if (log) {
+            log.msg = log.msg.replace(
+              "III. vágány",
+              train.track + ". vágány"
+            );
+          }
+
+          delete train._automaticBranchTrack;
+        }
+      };
+    }
+
+    // Egy gombbal előrekérés a következő három állomásig.
+    ForwardPanel.grantThree = function (id) {
+      let problem = null;
+
+      for (let i = 0; i < 3; i++) {
+        const candidate = sim.aheadCandidate(id);
+
+        if (!candidate) break;
+
+        const select = document.getElementById("track");
+
+        const track =
+          candidate.to === sim.selected &&
+          select &&
+          select.value !== "__through__"
+            ? select.value
+            : undefined;
+
+        const result = sim.grantAhead(id, track);
+
+        if (!result.ok) {
+          problem = result.msg;
+          break;
+        }
+      }
+
+      if (
+        problem &&
+        typeof toast === "function"
+      ) {
+        toast(problem);
+      }
+
+      render();
+    };
+
+    function decorate() {
+      const root = document.getElementById(
+        "forward-panels"
+      );
+
+      if (
+        root &&
+        !document.getElementById("fp-v2-status")
+      ) {
+        const badge = document.createElement("div");
+        badge.id = "fp-v2-status";
+
+        badge.textContent =
+          "ÚJ: 3 állomásig előkérés · " +
+          "automatikus szabadvágány-választás";
+
+        badge.style.cssText =
+          "padding:10px;" +
+          "background:#174e43;" +
+          "color:#d5ffeb;" +
+          "border:1px solid #5bbba0;" +
+          "margin-bottom:10px";
+
+        root.prepend(badge);
+      }
+
+      // Az első engedély normál és előrekérésként
+      // ne jelenjen meg kétszer ugyanabban a listában.
+      const seen = new Set();
+
+      document.querySelectorAll(
+        "#fp-wait .request"
+      ).forEach(row => {
+        const id = row.querySelector("b")?.textContent;
+
+        if (id && seen.has(id)) {
+          row.remove();
+        } else if (id) {
+          seen.add(id);
+        }
+      });
+
+      const count = document.getElementById(
+        "fp-wait-count"
+      );
+
+      if (count) {
+        count.textContent = document.querySelectorAll(
+          "#fp-wait .request"
+        ).length;
+      }
+
+      const note = document.querySelector(
+        "#fp-settings .small"
+      );
+
+      if (note) {
+        note.textContent =
+          "Az átmenő alapvágány itt módosítható játékbeállítás. " +
+          "Előkérés: összesen a következő 3 modellezett állomásra. " +
+          "A menetrendi megállások és indulási idők változatlanok.";
+      }
+
+      document.querySelectorAll(
+        "#trains tr"
+      ).forEach(row => {
+        if (row.querySelector("[data-three-ahead]")) {
+          return;
+        }
+
+        const id = row.querySelector(
+          "td button"
+        )?.textContent.trim();
+
+        const train = sim.trains.find(t => t.id === id);
+
+        if (
+          !train ||
+          train.finished ||
+          train.branchManaged
+        ) {
+          return;
+        }
+
+        const cell = row.querySelector("td");
+
+        if (!cell) return;
+
+        const button = document.createElement("button");
+
+        button.dataset.threeAhead = "1";
+        button.textContent = "Előkérés 3 állomásra";
+
+        button.onclick = () =>
+          ForwardPanel.grantThree(id);
+
+        cell.append(
+          document.createElement("br"),
+          button
+        );
+      });
+    }
+
+    const before = render;
+
+    render = function (...args) {
+      const result = before.apply(this, args);
+      decorate();
+      return result;
+    };
+
+    render();
+  }
+
+  function fail() {
+    const box = document.createElement("div");
+
+    box.textContent =
+      "Az új javítás nem indult: előbb az előző " +
+      "előreengedélyezési és panelszétválasztó blokk " +
+      "teljes kódját kell betölteni.";
+
+    box.style.cssText =
+      "padding:16px;" +
+      "background:#ffe29b;" +
+      "color:#111;" +
+      "border:3px solid #b65c00";
+
+    document.body.prepend(box);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener(
+      "DOMContentLoaded",
+      install,
+      { once: true }
+    );
+  } else {
+    install();
+  }
+})();
+</script>
+ <script id="v40-freight-v3">
+(() => {
+  function install() {
+    if (
+      typeof Simulation === "undefined" ||
+      typeof sim === "undefined"
+    ) return;
+
+    const P = Simulation.prototype;
+    if (P._freightV3) return;
+    P._freightV3 = true;
+
+    const oldAdd = P.add;
+    const oldNext = P.next;
+    const oldTraffic = P.realTraffic;
+    const oldTick = P.tick;
+
+    // Budapest-Déli nincs a generátor induló- és célhelyei között.
+    const nodes = STATIONS
+      .filter(s => s.control && s.id !== 0)
+      .map(s => s.id);
+
+    const freight = train =>
+      !train.branchManaged &&
+      (
+        train.kind === "freight" ||
+        !train.menetrendi &&
+        /^(T\d|KEZI-K)/.test(train.id)
+      );
+
+    const choose = list =>
+      list[Math.floor(Math.random() * list.length)];
+
+    function targets(at, dir) {
+      const index = nodes.indexOf(at);
+      if (index < 0) return [];
+
+      return nodes.filter((id, i) =>
+        id !== at &&
+        Math.abs(i - index) <= 8 &&
+        (!dir || Math.sign(id - at) === dir)
+      );
+    }
+
+    function permissions(simulation, train) {
+      return typeof simulation.permissionList === "function"
+        ? simulation.permissionList(train.id)
+        : [simulation.permissions[train.id]].filter(Boolean);
+    }
+
+    function configure(simulation, train, destination) {
+      const reserved = permissions(simulation, train);
+      let bound = train.at;
+
+      reserved.forEach(permission => {
+        if ((permission.to - bound) * train.dir > 0) {
+          bound = permission.to;
+        }
+      });
+
+      if (destination == null) {
+        const options = targets(
+          train.at,
+          train.dir
+        ).filter(id =>
+          (id - bound) * train.dir >= 0
+        );
+
+        destination = options.length
+          ? choose(options)
+          : bound !== train.at
+            ? bound
+            : null;
+      }
+
+      if (
+        destination == null ||
+        destination === train.at
+      ) return false;
+
+      const origin =
+        train.originStation ??
+        train.plan?.[0]?.station ??
+        train.at;
+
+      const departure =
+        train.plan?.find(p => p.station === train.at)?.dep ??
+        train.dep ??
+        simulation.time;
+
+      train.originStation = origin;
+      train.endStation = destination;
+      train.freightRoute = true;
+      train.menetrendi = false;
+      train.kind = "freight";
+
+      train.maxSpeed = Math.min(
+        100,
+        Math.max(40, train.maxSpeed || 80)
+      );
+
+      train.passStations = [];
+      train.plan = [];
+
+      let time = departure;
+      let previous = train.at;
+
+      for (
+        let id = train.at;
+        train.dir === 1
+          ? id <= destination
+          : id >= destination;
+        id += train.dir
+      ) {
+        if (id !== train.at) {
+          time +=
+            Math.abs(
+              STATIONS[id].km -
+              STATIONS[previous].km
+            ) / train.maxSpeed * 60;
+        }
+
+        train.plan.push({
+          station: id,
+          arr: id === train.at ? null : time,
+          dep: time,
+          stop:
+            id === train.at ||
+            id === destination,
+          generated: true
+        });
+
+        if (
+          id !== train.at &&
+          id !== destination &&
+          STATIONS[id].control
+        ) {
+          train.passStations.push(id);
+        }
+
+        previous = id;
+      }
+
+      return true;
+    }
+
+    function cancelDeli(simulation, train) {
+      for (
+        const [key, permission] of
+        Object.entries(simulation.permissions)
+      ) {
+        if (key === train.id) {
+          delete simulation.edges[permission.key];
+          delete simulation.permissions[key];
+        }
+      }
+
+      for (
+        const permission of
+        simulation.forwardPermissions?.[train.id] || []
+      ) {
+        delete simulation.edges[permission.key];
+      }
+
+      if (simulation.forwardPermissions) {
+        delete simulation.forwardPermissions[train.id];
+      }
+
+      for (
+        const [key, route] of
+        Object.entries(simulation.routes)
+      ) {
+        if (route.train === train.id) {
+          delete simulation.routes[key];
+        }
+      }
+
+      train.finished = true;
+      train.finishedAt = simulation.time;
+      train.freightRoute = true;
+
+      simulation.log(
+        train.id +
+        ": a még el nem indult déli pályaudvari " +
+        "tehermenet törölve."
+      );
+    }
+
+    function migrate(simulation) {
+      for (const train of simulation.trains) {
+        if (
+          !freight(train) ||
+          train.finished ||
+          train.freightRoute
+        ) continue;
+
+        if (
+          train.at === 0 &&
+          train.phase === "parked"
+        ) {
+          cancelDeli(simulation, train);
+          continue;
+        }
+
+        if (train.at === 0) {
+          // A már mozgó vonatot nem teleportáljuk vissza.
+          const reserved = permissions(simulation, train);
+          const bound = reserved.at(-1)?.to ?? 1;
+
+          const lastIndex = Math.min(
+            nodes.length - 1,
+            nodes.indexOf(bound) + 7
+          );
+
+          const options = nodes.filter(id =>
+            id >= bound &&
+            id <= nodes[lastIndex]
+          );
+
+          configure(
+            simulation,
+            train,
+            options.length ? choose(options) : bound
+          );
+        } else if (!configure(simulation, train)) {
+          if (train.phase === "parked") {
+            train.finished = true;
+            train.finishedAt = simulation.time;
+            train.endStation = train.at;
+            train.freightRoute = true;
+          }
+        }
+      }
+    }
+
+    P.add = function (at, dir, dep, destination) {
+      if (
+        at === 0 ||
+        ![1, -1].includes(dir)
+      ) return null;
+
+      const options = targets(at, dir);
+      if (!options.length) return null;
+
+      destination = options.includes(destination)
+        ? destination
+        : choose(options);
+
+      const train = oldAdd.call(
+        this,
+        at,
+        dir,
+        dep
+      );
+
+      if (!train) return null;
+
+      train.maxSpeed =
+        60 + 10 * Math.floor(Math.random() * 5);
+
+      configure(this, train, destination);
+      return train;
+    };
+
+    P.next = function (train) {
+      if (
+        freight(train) &&
+        train.freightRoute
+      ) {
+        if (train.at === train.endStation) {
+          return null;
+        }
+
+        const next = oldNext.call(this, train);
+
+        return (
+          next !== null &&
+          (next - train.endStation) * train.dir > 0
+        )
+          ? null
+          : next;
+      }
+
+      return oldNext.call(this, train);
+    };
+
+    P.realTraffic = function () {
+      const enabled = this.freightEnabled;
+
+      // A személyvonati menetrendet továbbra is
+      // az eredeti függvény kezeli, a régi tehergenerátort nem.
+      this.freightEnabled = false;
+
+      try {
+        oldTraffic.call(this);
+      } finally {
+        this.freightEnabled = enabled;
+      }
+
+      if (
+        !enabled ||
+        this.time < this.nextFreight
+      ) return;
+
+      const starts = nodes.filter(id =>
+        this.free(id) &&
+        targets(id).length
+      );
+
+      if (starts.length) {
+        const origin = choose(starts);
+        const destination = choose(targets(origin));
+
+        const train = this.add(
+          origin,
+          Math.sign(destination - origin),
+          this.time + 2,
+          destination
+        );
+
+        if (train) {
+          this.log(
+            train.id +
+            ": generált tehervonat, " +
+            STATIONS[origin].name +
+            " → " +
+            STATIONS[destination].name +
+            ", legfeljebb " +
+            train.maxSpeed +
+            " km/h."
+          );
+        }
+      }
+
+      this.nextFreight =
+        this.time +
+        15 +
+        Math.floor(Math.random() * 16);
+    };
+
+    P.tick = function (dt) {
+      migrate(this);
+
+      const before = this.time;
+      const result = oldTick.call(this, dt);
+
+      this.ensureBlocks();
+      this.blockSystem.refresh(this);
+
+      for (const train of this.trains) {
+        if (
+          !freight(train) ||
+          !train.freightRoute ||
+          train.finished ||
+          train.phase !== "parked" ||
+          train.at === train.originStation ||
+          train.at === train.endStation
+        ) continue;
+
+        // Köztes állomáson nincs tervezett tartózkodás.
+        train.dep = this.time;
+
+        const permission = this.permissions[train.id];
+
+        const signal =
+          (train.dir === 1 ? "KR-" : "KL-") +
+          train.track;
+
+        const route = this.getRoute(
+          train.at,
+          signal
+        );
+
+        // Engedély és szabad kijárat nélkül nem indulhat tovább.
+        if (
+          !permission ||
+          route?.train !== train.id ||
+          !route.clear ||
+          !this.blockSystem.canEnter(
+            permission,
+            train.dir,
+            train.id
+          )
+        ) continue;
+
+        train.phase = "leaving";
+        train.motionStart = this.time;
+        train.motionDuration = 1.2;
+        train.progress = 0;
+        train.distance = 0;
+        train.blockWaiting = false;
+
+        route.clear = false;
+
+        const event = this.logs.find(entry =>
+          entry.time >= before &&
+          entry.msg.startsWith(train.id + ":") &&
+          entry.msg.includes("megállt ")
+        );
+
+        if (event) {
+          event.msg = event.msg.replace(
+            "megállt ",
+            "áthaladt "
+          );
+        } else {
+          this.log(
+            train.id +
+            ": továbbhalad " +
+            STATIONS[train.at].name +
+            " állomásról."
+          );
+        }
+
+        const history = train.history.at(-1);
+
+        if (history?.station === train.at) {
+          history.pass = true;
+          history.dep = this.time;
+        }
+
+        this.blockSystem.refresh(this);
+      }
+
+      return result;
+    };
+
+    if (typeof GodisaBranch !== "undefined") {
+      const handoff = GodisaBranch.handoff;
+
+      GodisaBranch.handoff = function (
+        simulation,
+        id,
+        dir
+      ) {
+        const result = handoff.call(
+          this,
+          simulation,
+          id,
+          dir
+        );
+
+        if (result.ok) {
+          const train = simulation.trains.find(
+            t => t.id === id
+          );
+
+          if (train) configure(simulation, train);
+        }
+
+        return result;
+      };
+    }
+
+    window.FreightRoutesV3 = {
+      targets,
+      migrate
+    };
+
+    migrate(sim);
+
+    if (typeof render === "function") {
+      const before = render;
+
+      render = function (...args) {
+        migrate(sim);
+
+        const result = before.apply(this, args);
+
+        if (
+          !document.getElementById("freight-v3-status")
+        ) {
+          const badge = document.createElement("div");
+          badge.id = "freight-v3-status";
+
+          badge.textContent =
+            "Teherforgalom V3: változó célállomás · " +
+            "nincs köztes tervezett megállás · " +
+            "Déliből nincs indulás";
+
+          badge.style.cssText =
+            "padding:8px;" +
+            "background:#184a40;" +
+            "color:#dcfff0;" +
+            "margin:8px";
+
+          (
+            document.querySelector("nav") ||
+            document.body
+          ).after(badge);
+        }
+
+        const add = document.getElementById("add");
+
+        if (add) {
+          if (sim.selected === 0) {
+            add.disabled = true;
+            add.dataset.freightDeliBlocked = "1";
+
+            add.title =
+              "Budapest-Déliből nem indítható tehervonat.";
+          } else if (
+            add.dataset.freightDeliBlocked
+          ) {
+            add.disabled = false;
+            delete add.dataset.freightDeliBlocked;
+            add.title = "";
+          }
+        }
+
+        document.querySelectorAll(
+          "#trains tr"
+        ).forEach(row => {
+          const id = row.querySelector(
+            "td button"
+          )?.textContent.trim();
+
+          const train = sim.trains.find(
+            t => t.id === id
+          );
+
+          if (
+            !train ||
+            !freight(train) ||
+            !train.freightRoute ||
+            train.endStation == null
+          ) return;
+
+          row.querySelector(
+            ".freight-destination"
+          )?.remove();
+
+          const text = document.createElement("div");
+          text.className = "freight-destination small";
+
+          text.textContent =
+            "Cél: " +
+            STATIONS[train.endStation].name;
+
+          row.querySelector("td")?.append(text);
+        });
+
+        return result;
+      };
+
+      render();
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener(
+      "DOMContentLoaded",
+      install,
+      { once: true }
+    );
+  } else {
+    install();
+  }
+})();
+</script>
+ <script id="v40-request-priority">
+(() => {
+  function install() {
+    if (window.ControlledRequestColors) return;
+
+    if (
+      typeof sim === "undefined" ||
+      typeof render !== "function" ||
+      !window.ForwardPanel ||
+      !document.getElementById("fp-wait")
+    ) {
+      const warning = document.createElement("div");
+
+      warning.textContent =
+        "A kéréskiemeléshez előbb az előző, " +
+        "két engedélylistás javítást kell betölteni.";
+
+      warning.style.cssText =
+        "padding:12px;background:#ffe29b;color:#111";
+
+      document.body.prepend(warning);
+      return;
+    }
+
+    window.ControlledRequestColors = true;
+
+    const escape = value =>
+      String(value ?? "").replace(
+        /[&<>"']/g,
+        c => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;"
+        }[c])
+      );
+
+    const station = id =>
+      id == null
+        ? "Komló irányú modellhatár"
+        : STATIONS[id].name;
+
+    const mine = id =>
+      sim.auto === false ||
+      (
+        typeof playerOwns === "function"
+          ? playerOwns(sim, id)
+          : (sim.playerControl?.stations || []).includes(id)
+      );
+
+    const style = document.createElement("style");
+
+    style.textContent = `
+      #fp-wait .priority-group {
+        padding: 10px;
+        margin: 8px;
+        border-radius: 8px;
+      }
+
+      #fp-wait .priority-group h3 {
+        font-size: 15px;
+        margin: 0 0 8px;
+      }
+
+      #fp-wait .priority-own {
+        border: 2px solid #ffc857;
+        background: #33280f;
+        color: #fff2cb;
+      }
+
+      #fp-wait .request.priority-manual {
+        background: #463615;
+        color: #fff2cb;
+        border: 1px solid #b88a29;
+        border-left: 6px solid #ffc857;
+        margin: 7px 0;
+        border-radius: 5px;
+      }
+
+      #fp-wait .priority-other {
+        border: 1px solid #58768b;
+        background: #172d3e;
+        color: #d9e9f4;
+      }
+
+      #fp-wait .request.priority-automatic {
+        background: #1d374a;
+        color: #d9e9f4;
+        border-left: 4px solid #7194af;
+        margin: 7px 0;
+        border-radius: 5px;
+      }
+
+      #fp-wait .priority-label {
+        display: inline-block;
+        padding: 3px 6px;
+        border-radius: 4px;
+        margin: 4px 0;
+        background: #ffc857;
+        color: #291d00;
+        font-weight: 700;
+      }
+
+      #fp-wait button {
+        margin: 4px 4px 0 0;
+      }
+
+      #fp-wait .priority-empty {
+        font-size: 13px;
+        margin: 5px 0;
+      }
+    `;
+
+    document.head.append(style);
+
+    window.RequestPriority = {
+      focus(id) {
+        if (typeof selectStation === "function") {
+          selectStation(id);
+        }
+
+        if (typeof setView === "function") {
+          setView("station");
+        }
+      }
+    };
+
+    const button = (text, code) =>
+      '<button onclick="' +
+      escape(code) +
+      '">' +
+      text +
+      "</button>";
+
+    function paint() {
+      const entries = new Map();
+
+      function add(
+        train,
+        from,
+        to,
+        ahead = false,
+        branch = false
+      ) {
+        const key = train.id + "|" + from + "|" + to;
+
+        if (!entries.has(key)) {
+          entries.set(key, {
+            train,
+            from,
+            to,
+            ahead,
+            branch,
+            owned: mine(branch ? 37 : to)
+          });
+        }
+      }
+
+      for (const train of sim.trains) {
+        if (train.finished) continue;
+
+        if (train.branchManaged) {
+          if (
+            !train.branchPermission &&
+            (
+              train.phase === "branchRequest" ||
+              (
+                train.phase === "parked" &&
+                train.branchDirection === "out" &&
+                !train.history?.length
+              )
+            )
+          ) {
+            add(
+              train,
+              train.branchDirection === "in" ? null : 37,
+              train.branchDirection === "in" ? 37 : null,
+              false,
+              true
+            );
+          }
+
+          continue;
+        }
+
+        if (sim.request(train)) {
+          const to = sim.next(train);
+
+          if (to !== null) {
+            add(train, train.at, to);
+          }
+        }
+
+        const next =
+          typeof sim.aheadCandidate === "function" &&
+          sim.aheadCandidate(train.id);
+
+        if (next) {
+          add(train, next.from, next.to, true);
+        }
+      }
+
+      const all = [...entries.values()];
+
+      const order = (a, b) =>
+        (a.to ?? 37) - (b.to ?? 37) ||
+        Number(a.ahead) - Number(b.ahead) ||
+        String(a.train.id).localeCompare(
+          String(b.train.id),
+          "hu",
+          { numeric: true }
+        );
+
+      const own = all
+        .filter(item => item.owned)
+        .sort(order);
+
+      const other = all
+        .filter(item =>
+          !item.owned &&
+          (
+            sim.view === "kofi" ||
+            item.to === sim.selected ||
+            item.from === sim.selected
+          )
+        )
+        .sort(order);
+
+      function row(item) {
+        const id = JSON.stringify(item.train.id);
+
+        const request = item.branch
+          ? `ForwardPanel.branch('grant',${id})`
+          : `ForwardPanel.grant(${id},${item.ahead})`;
+
+        const label = item.owned
+          ? '<span class="priority-label">TE KEZELED</span>'
+          : '<span class="small">Automatikus terület</span>';
+
+        const type = item.branch
+          ? "Csatlakozó modellmenet"
+          : item.ahead
+            ? "Előrekérés"
+            : "Engedélykérés";
+
+        return (
+          '<div class="request ' +
+          (
+            item.owned
+              ? "priority-manual"
+              : "priority-automatic"
+          ) +
+          '">' +
+          "<b>" + escape(item.train.id) + "</b> " +
+          label +
+          "<div>" +
+          escape(station(item.from)) +
+          " → " +
+          escape(station(item.to)) +
+          "</div>" +
+          '<div class="small">' + type + "</div>" +
+          button(
+            item.ahead ? "Előreengedély" : "Engedély",
+            request
+          ) +
+          button(
+            "Fogadó pult",
+            `RequestPriority.focus(${item.branch ? 37 : item.to})`
+          ) +
+          button(
+            "Menetrend",
+            `showTrain(${id})`
+          ) +
+          "</div>"
+        );
+      }
+
+      document.getElementById("fp-wait").innerHTML =
+        '<section class="priority-group priority-own">' +
+          "<h3>Saját terület – rád vár · " +
+            '<span id="priority-own-count">' +
+              own.length +
+            "</span>" +
+          "</h3>" +
+          (
+            own.map(row).join("") ||
+            '<p class="priority-empty">' +
+              "A saját területeden nincs függő engedélykérés." +
+            "</p>"
+          ) +
+        "</section>" +
+
+        '<section class="priority-group priority-other">' +
+          "<h3>Egyéb / automatikus terület · " +
+            '<span id="priority-other-count">' +
+              other.length +
+            "</span>" +
+          "</h3>" +
+          (
+            other.map(row).join("") ||
+            '<p class="priority-empty">' +
+              "Nincs másik megjelenítendő engedélykérés." +
+            "</p>"
+          ) +
+        "</section>";
+
+      const count = document.getElementById(
+        "fp-wait-count"
+      );
+
+      if (count) {
+        count.textContent = own.length + other.length;
+      }
+    }
+
+    const previous = render;
+
+    render = function (...args) {
+      const result = previous.apply(this, args);
+      paint();
+      return result;
+    };
+
+    render();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener(
+      "DOMContentLoaded",
+      install,
+      { once: true }
+    );
+  } else {
+    install();
+  }
+})();
+</script>
 </body></html>
