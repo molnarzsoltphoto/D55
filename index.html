@@ -6211,4 +6211,359 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
                 ? GodisaBranch.grant(sim, id)
                 : action === "route"
                   ? GodisaBranch.route(sim, id)
+                  : GodisaBranch.clear(sim)
+            );
+          }
+        };
+
+        if (typeof grant === "function") {
+          grant = id => api.grant(id, false);
+        }
+
+        const button = (text, code) =>
+          '<button onclick="' +
+          escape(code) +
+          '">' +
+          text +
+          "</button>";
+
+        const idArgument = id => JSON.stringify(id);
+
+        const visible = permission =>
+          sim.view === "kofi" ||
+          permission.to === sim.selected ||
+          permission.from === sim.selected;
+
+        function paint() {
+          const waiting = [];
+          const granted = [];
+
+          for (const train of sim.trains) {
+            if (train.finished) continue;
+
+            if (train.branchManaged) {
+              if (
+                typeof GodisaBranch === "undefined" ||
+                (
+                  sim.view !== "kofi" &&
+                  sim.selected !== 37
+                )
+              ) {
+                continue;
+              }
+
+              const from =
+                train.branchDirection === "in"
+                  ? null
+                  : 37;
+
+              const to =
+                train.branchDirection === "in"
+                  ? 37
+                  : null;
+
+              const label =
+                "<b>" + escape(train.id) + "</b>" +
+                "<div>" +
+                escape(stationName(from)) +
+                " → " +
+                escape(stationName(to)) +
+                "</div>" +
+                '<div class="small">' +
+                "Csatlakozó modellmenet</div>";
+
+              if (
+                !train.branchPermission &&
+                (
+                  train.phase === "branchRequest" ||
+                  (
+                    train.phase === "parked" &&
+                    !train.history?.length
+                  )
+                )
+              ) {
+                waiting.push(
+                  label +
+                  button(
+                    "Engedély",
+                    "ForwardPanel.branch('grant'," +
+                    idArgument(train.id) +
+                    ")"
+                  )
+                );
+              }
+
+              if (train.branchPermission) {
+                granted.push(
+                  label +
+                  button(
+                    "Vágányút",
+                    "ForwardPanel.branch('route'," +
+                    idArgument(train.id) +
+                    ")"
+                  ) +
+                  button(
+                    "Jelző Szabad",
+                    "ForwardPanel.branch('clear'," +
+                    idArgument(train.id) +
+                    ")"
+                  )
+                );
+              }
+
+              continue;
+            }
+
+            const current = sim.permissions[train.id];
+
+            if (sim.request(train)) {
+              const permission = {
+                from: train.at,
+                to: sim.next(train)
+              };
+
+              if (
+                permission.to !== null &&
+                visible(permission)
+              ) {
+                waiting.push(
+                  "<b>" + escape(train.id) + "</b>" +
+                  "<div>" +
+                  escape(stationName(permission.from)) +
+                  " → " +
+                  escape(stationName(permission.to)) +
+                  "</div>" +
+                  button(
+                    "Engedély",
+                    "ForwardPanel.grant(" +
+                    idArgument(train.id) +
+                    ",false)"
+                  )
+                );
+              }
+            }
+
+            const ahead =
+              sim.aheadCandidate(train.id);
+
+            if (ahead && visible(ahead)) {
+              waiting.push(
+                "<b>" + escape(train.id) + "</b>" +
+                '<div class="fp-future">Előrekérés</div>' +
+                "<div>" +
+                escape(stationName(ahead.from)) +
+                " → " +
+                escape(stationName(ahead.to)) +
+                "</div>" +
+                button(
+                  "Előreengedély",
+                  "ForwardPanel.grant(" +
+                  idArgument(train.id) +
+                  ",true)"
+                )
+              );
+            }
+
+            for (
+              const permission of
+              sim.permissionList(train.id)
+            ) {
+              if (!visible(permission)) continue;
+
+              const future = permission !== current;
+
+              let row =
+                "<b>" + escape(train.id) + "</b>" +
+                "<div" +
+                (future ? ' class="fp-future"' : "") +
+                ">" +
+                (
+                  future
+                    ? "Előre megadva"
+                    : "Aktív engedély"
+                ) +
+                "</div>" +
+                "<div>" +
+                escape(stationName(permission.from)) +
+                " → " +
+                escape(stationName(permission.to)) +
+                "</div>" +
+                "<div>" +
+                escape(permission.track) +
+                ". fogadóvágány</div>";
+
+              row += button(
+                "Fogadó állomás",
+                "ForwardPanel.focus(" +
+                permission.to +
+                ")"
+              );
+
+              row += button(
+                "Bejárati vágányút",
+                "ForwardPanel.route(" +
+                idArgument(train.id) + "," +
+                permission.from +
+                ",'in')"
+              );
+
+              row += button(
+                "Bejárat Szabad",
+                "ForwardPanel.route(" +
+                idArgument(train.id) + "," +
+                permission.from +
+                ",'in',true)"
+              );
+
+              row += button(
+                "Kijárati vágányút",
+                "ForwardPanel.route(" +
+                idArgument(train.id) + "," +
+                permission.from +
+                ",'out')"
+              );
+
+              row += button(
+                "Kijárat Szabad",
+                "ForwardPanel.route(" +
+                idArgument(train.id) + "," +
+                permission.from +
+                ",'out',true)"
+              );
+
+              row += button(
+                "Engedély vissza",
+                "ForwardPanel.revoke(" +
+                idArgument(train.id) + "," +
+                permission.from + "," +
+                future +
+                ")"
+              );
+
+              granted.push(row);
+            }
+          }
+
+          document.getElementById(
+            "fp-wait-count"
+          ).textContent = waiting.length;
+
+          document.getElementById(
+            "fp-granted-count"
+          ).textContent = granted.length;
+
+          document.getElementById(
+            "fp-wait"
+          ).innerHTML =
+            waiting.map(
+              row => '<div class="request">' + row + "</div>"
+            ).join("") ||
+            '<div class="body">' +
+            "Nincs engedélyre váró kérés.</div>";
+
+          document.getElementById(
+            "fp-granted"
+          ).innerHTML =
+            granted.map(
+              row => '<div class="request">' + row + "</div>"
+            ).join("") ||
+            '<div class="body">' +
+            "Nincs megadott engedély.</div>";
+
+          document.getElementById(
+            "fp-settings"
+          ).innerHTML =
+            escape(STATIONS[sim.selected].name) +
+            '<select id="fp-through" ' +
+            'onchange="ForwardPanel.through(this.value)">' +
+            STATIONS[sim.selected].tracks.map(track =>
+              '<option value="' +
+              escape(track) +
+              '"' +
+              (
+                track === sim.throughTrack(sim.selected)
+                  ? " selected"
+                  : ""
+              ) +
+              ">" +
+              escape(track) +
+              ". vágány</option>"
+            ).join("") +
+            "</select>" +
+            '<div class="small">' +
+            "Ez az állomás játékbeli átmenő alapvágánya; " +
+            "az ellenőrizetlen kezdeti érték itt módosítható. " +
+            "Előrekészítés: legfeljebb " +
+            sim.forwardLimit +
+            " további állomásköz, csak menetrend " +
+            "szerinti áthaladáson át.</div>";
+        }
+
+        let previousStation = null;
+        const previousRender = render;
+
+        render = function (...args) {
+          const saved =
+            document.getElementById("track")?.value;
+
+          const result =
+            previousRender.apply(this, args);
+
+          const select =
+            document.getElementById("track");
+
+          if (select) {
+            const option =
+              document.createElement("option");
+
+            option.value = "__through__";
+            option.textContent =
+              "Átmenő alapvágány (" +
+              sim.throughTrack(sim.selected) +
+              ")";
+
+            select.prepend(option);
+
+            const canRestore =
+              previousStation === sim.selected &&
+              [...select.options].some(
+                item => item.value === saved
+              );
+
+            select.value =
+              canRestore ? saved : "__through__";
+          }
+
+          previousStation = sim.selected;
+          paint();
+
+          return result;
+        };
+
+        render();
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener(
+          "DOMContentLoaded",
+          install,
+          { once: true }
+        );
+      } else {
+        install();
+      }
+    })();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener(
+      "DOMContentLoaded",
+      applyForwardUpdate,
+      { once: true }
+    );
+  } else {
+    applyForwardUpdate();
+  }
+})();
+</script>
 </body></html>
