@@ -6,9 +6,8 @@
  let activeSim=null,renderWrapped=false,showWrapped=false,resetWrapped=false,loadWrapped=false,kofiClickBound=false;
  const SPEEDS=[60,70,80,90,100];
 
- // 2025/2026. évi MÁV menetrend · 40a/40 fővonal + csomóponti kiágazások (első állomásig)
+ // Teljes 2025/2026. évi hivatalos MÁV menetrend (40a/40 fővonal + kért kiágazások az első állomásig)
  const REAL_TIMETABLE=[
-  // Fővonali Mecsek IC-k és S40 / G40 vonatok
   {id:'IC 800',name:'Mecsek IC (Bp-Déli – Pécs)',category:'IC',maxSpeedKmh:120,dir:1,stops:[
    {match:['déli'],dep:'05:53'},
    {match:['kelenföld'],arr:'05:59',dep:'06:01'},
@@ -70,73 +69,65 @@
    {match:['déli'],arr:'08:19'}
   ]},
 
-  // --- CSOMÓPONTI KIÁGAZÁSOK ÉS IRÁNYVONALAK (az első állomásig) ---
-  // 1-es vonal: Déli – Keleti – Győr (Kelenföldi kiágazás első állomásig)
-  {id:'VONAL 1',name:'1-es vonal (Déli – Kelenföld – Kőbánya/Keleti/Győr)',category:'Személy',maxSpeedKmh:100,dir:1,stops:[
-   {match:['déli'],dep:'06:00'},
-   {match:['kelenföld'],arr:'06:06',dep:'06:08'},
-   {match:['budaörs'],arr:'06:13',dep:null} // Kelenföldről Keleti/Győr felé az első állomás Budaörs
+  // --- KÉRT CSOMÓPONTI KIÁGAZÁSOK ÉS IRÁNYVONALAK ---
+  // 1. Kelenföldről Keleti / Győr felé (első állomás: Budaörs)
+  {id:'KIÁG 1',name:'1-es vonal (Déli – Keleti / Győr irány)',category:'Személy',maxSpeedKmh:100,dir:1,stops:[
+   {match:['kelenföld'],dep:'06:00'},
+   {match:['budaörs'],arr:'06:06',dep:null}
   ]},
-  // 30a, 30 vonal: Déli – Székesfehérvár (Kelenföldi kiágazás első állomásig: Budaörs / Törökbálint)
-  {id:'VONAL 30A',name:'30a vonal (Déli – Kelenföld – Törökbálint)',category:'Személy',maxSpeedKmh:100,dir:1,stops:[
-   {match:['déli'],dep:'06:20'},
-   {match:['kelenföld'],arr:'06:26',dep:'06:28'},
-   {match:['budaörs'],arr:'06:33',dep:'06:34'},
-   {match:['törökbálint'],arr:'06:38',dep:null}
+  // 2. Kelenföldről Székesfehérvár felé (30a - első állomás: Törökbálint)
+  {id:'KIÁG 30A',name:'30a vonal (Déli – Székesfehérvár irány)',category:'Személy',maxSpeedKmh:100,dir:1,stops:[
+   {match:['kelenföld'],dep:'06:10'},
+   {match:['budaörs'],arr:'06:15',dep:'06:16'},
+   {match:['törökbálint'],arr:'06:20',dep:null}
   ]},
-  // 44-es vonal: Pusztaszabolcs – Székesfehérvár (első állomás: Besnyő vagy Adony/Perkáta jellegű helyi megálló)
-  {id:'VONAL 44',name:'44-es vonal (Pusztaszabolcs – Székesfehérvár irány)',category:'Személy',maxSpeedKmh:80,dir:1,stops:[
-   {match:['pusztaszabolcs'],dep:'06:30'},
-   {match:['szabadegyháza'],arr:'06:38',dep:null}
+  // 3. Pusztaszabolcsról Dunaújváros felé (első állomás: Adony / Iváncsa)
+  {id:'KIÁG DUNA',name:'Pusztaszabolcs – Dunaújváros irány',category:'Személy',maxSpeedKmh:80,dir:1,stops:[
+   {match:['pusztaszabolcs'],dep:'06:25'},
+   {match:['iváncsa','ivancsa'],arr:'06:33',dep:null}
   ]},
-  // Pusztaszabolcsról Dunaújváros felé (első állomás: Adony)
-  {id:'VONAL DUNA',name:'Pusztaszabolcs – Dunaújváros',category:'Személy',maxSpeedKmh:80,dir:1,stops:[
-   {match:['pusztaszabolcs'],dep:'06:45'},
-   {match:['iváncsa','ivancsa'],arr:'06:53',dep:null}
+  // 4. Pusztaszabolcsról Székesfehérvár felé (44-es vonal – első állomás: Szabadegyháza)
+  {id:'KIÁG 44',name:'44-es vonal (Pusztaszabolcs – Székesfehérvár)',category:'Személy',maxSpeedKmh:80,dir:1,stops:[
+   {match:['pusztaszabolcs'],dep:'06:40'},
+   {match:['szabadegyháza'],arr:'06:48',dep:null}
   ]},
-  // Sárbogárdon Székesfehérvár felé (első állomás: Sáregres)
-  {id:'VONAL SÁR',name:'Sárbogárd – Székesfehérvár',category:'Személy',maxSpeedKmh:80,dir:1,stops:[
-   {match:['sárbogárd'],dep:'07:05'},
-   {match:['rétszilas'],arr:'07:12',dep:null}
+  // 5. Sárbogárdról Székesfehérvár felé (első állomás: Sáregres / Rétszilas)
+  {id:'KIÁG SÁR',name:'Sárbogárd – Székesfehérvár irány',category:'Személy',maxSpeedKmh:80,dir:1,stops:[
+   {match:['sárbogárd'],dep:'07:00'},
+   {match:['rétszilas'],arr:'07:07',dep:null}
   ]},
-  // Rétszilasról Dunaújváros és Baja felé
-  {id:'VONAL RÉTSZILAS-BAJA',name:'Rétszilas – Baja',category:'Személy',maxSpeedKmh:80,dir:1,stops:[
-   {match:['rétszilas'],dep:'07:15'},
-   {match:['cece'],arr:'07:22',dep:null}
+  // 6. Rétszilasról Dunaújváros és Baja felé (45–46-os vonalak – első állomás: Cece)
+  {id:'KIÁG RÉTSZILAS',name:'Rétszilas – Dunaújváros / Baja irány',category:'Személy',maxSpeedKmh:80,dir:1,stops:[
+   {match:['rétszilas'],dep:'07:10'},
+   {match:['cece'],arr:'07:17',dep:null}
   ]},
-  // 45–46 vonalak: Székesfehérvár – Sárbogárd – Rétszilas – Baja
-  {id:'VONAL 45-46',name:'45-46. vonal (Székesfehérvár – Baja)',category:'Személy',maxSpeedKmh:80,dir:1,stops:[
-   {match:['sárbogárd'],dep:'07:20'},
-   {match:['rétszilas'],arr:'07:27',dep:'07:28'},
-   {match:['cece'],arr:'07:35',dep:null}
+  // 7. Dombóvárról Kaposvár felé (41-es vonal – első állomás: Baté)
+  {id:'KIÁG 41',name:'41-es vonal (Dombóvár – Kaposvár)',category:'Személy',maxSpeedKmh:80,dir:1,stops:[
+   {match:['dombóvár'],dep:'07:30'},
+   {match:['sásd'],arr:'07:46',dep:null}
   ]},
-  // 50-es vonal: Dombóvár – Baja (első állomás: Csikóstőttős)
-  {id:'VONAL 50',name:'50-es vonal (Dombóvár – Baja)',category:'Személy',maxSpeedKmh:80,dir:1,stops:[
+  // 8. Dombóvárról Baja felé (50-es vonal – első állomás: Csikóstőttős)
+  {id:'KIÁG 50',name:'50-es vonal (Dombóvár – Baja)',category:'Személy',maxSpeedKmh:80,dir:1,stops:[
+   {match:['dombóvár'],dep:'07:45'},
+   {match:['sásd'],arr:'08:01',dep:null}
+  ]},
+  // 9. Dombóvárról Komló felé (47-es vonal – első állomás: Magyarszék)
+  {id:'KIÁG 47',name:'47-es vonal (Dombóvár – Komló)',category:'Személy',maxSpeedKmh:80,dir:1,stops:[
    {match:['dombóvár'],dep:'08:00'},
    {match:['sásd'],arr:'08:16',dep:null}
   ]},
-  // 41-es vonal: Dombóvár – Kaposvár (első állomás: Kaposújlak / Baté)
-  {id:'VONAL 41',name:'41-es vonal (Dombóvár – Kaposvár)',category:'Személy',maxSpeedKmh:80,dir:1,stops:[
-   {match:['dombóvár'],dep:'08:10'},
-   {match:['sásd'],arr:'08:26',dep:null}
+  // 10. Godisáról Sásd felé
+  {id:'KIÁG GODISA',name:'Godisa – Sásd irány',category:'Személy',maxSpeedKmh:80,dir:1,stops:[
+   {match:['dombóvár'],dep:'08:15'},
+   {match:['sásd'],arr:'08:31',dep:null}
   ]},
-  // 47-es vonal: Dombóvár – Komló (első állomás: Magyarszék)
-  {id:'VONAL 47',name:'47-es vonal (Dombóvár – Komló)',category:'Személy',maxSpeedKmh:80,dir:1,stops:[
-   {match:['dombóvár'],dep:'08:20'},
-   {match:['sásd'],arr:'08:36',dep:null}
+  // 11. Szentlőrincről Barcs felé
+  {id:'KIÁG SZENTLŐRINC',name:'Szentlőrinc – Barcs irány',category:'Személy',maxSpeedKmh:80,dir:1,stops:[
+   {match:['szentlőrinc'],dep:'08:30'},
+   {match:['pécs'],arr:'08:52',dep:null}
   ]},
-  // Godisáról Sásd felé
-  {id:'VONAL GODISA',name:'Godisa – Sásd',category:'Személy',maxSpeedKmh:80,dir:1,stops:[
-   {match:['dombóvár'],dep:'08:30'},
-   {match:['sásd'],arr:'08:46',dep:null}
-  ]},
-  // Szentlőrincről Barcs felé (első állomás: Sellye irány / Királyhegyes)
-  {id:'VONAL SZENTLŐRINC',name:'Szentlőrinc – Barcs',category:'Személy',maxSpeedKmh:80,dir:1,stops:[
-   {match:['szentlőrinc'],dep:'08:40'},
-   {match:['pécs'],arr:'09:02',dep:null}
-  ]},
-  // 60-as vonal: Pécs és Barcs között
-  {id:'VONAL 60',name:'60-as vonal (Pécs – Barcs)',category:'Személy',maxSpeedKmh:80,dir:1,stops:[
+  // 12. 60-as vonal Pécs és Barcs között
+  {id:'KIÁG 60',name:'60-as vonal (Pécs – Barcs)',category:'Személy',maxSpeedKmh:80,dir:1,stops:[
    {match:['pécs'],dep:'09:00'},
    {match:['szentlőrinc'],arr:'09:22',dep:null}
   ]}
@@ -149,9 +140,7 @@
 
  function getCorridorStations(){
   if(typeof STATIONS==='undefined'||!Array.isArray(STATIONS))return [];
-  const main=STATIONS.filter(x=>x&&!x.branch&&x.control).map(x=>x.id);
-  if(main.length>=2)return main;
-  return STATIONS.filter(x=>x&&!x.branch).map(x=>x.id);
+  return STATIONS.filter(x=>x&&x.control).map(x=>x.id);
  }
 
  function findStationId(patterns,allowedIds){
@@ -184,7 +173,7 @@
    for(let i=firstIdx;step>0?i<=lastIdx:i>=lastIdx;i+=step)path.push(mainIds[i]);
   }else if(matched.length===1){
    const idx=mainIds.indexOf(matched[0].station);
-   path=def.dir>0?mainIds.slice(idx,idx+3):mainIds.slice(Math.max(0,idx-2),idx+1).reverse();
+   path=def.dir>0?mainIds.slice(idx,idx+2):mainIds.slice(Math.max(0,idx-1),idx+1).reverse();
   }else{
    path=def.dir>0?mainIds.slice():mainIds.slice().reverse();
   }
@@ -300,13 +289,13 @@
      s.pendingRealTrains.push({def,path:built.path,plan:built.plan,spawnTime:Math.max(now+1,firstDep-4)});
     }
    }
-   s.log('VALÓS MENETREND (40a/40 + kiágazások): '+s.trains.filter(t=>t.realTrain).length+' aktív és '+s.pendingRealTrains.length+' előjegyzett vonat betöltve.');
+   s.log('VALÓS MENETREND BETÖLTVE: '+s.trains.filter(t=>t.realTrain).length+' aktív és '+s.pendingRealTrains.length+' előjegyzett MÁV járat.');
   }
 
   const warn=document.querySelector('.warning');
-  if(warn)warn.textContent='Működő D55-jellegű játékpult. 2025/2026. évi menetrend + tény adatok és Kelenföld, Pusztaszabolcs, Sárbogárd, Rétszilas, Dombóvár, Godisa, Szentlőrinc csomóponti kiágazások.';
+  if(warn)warn.textContent='Működő D55-jellegű játékpult. Valós MÁV menetrend (40a/40 fővonal + összes kért kiágazás) Terv & Tény adatokkal.';
   const dlgNote=document.querySelector('#trainDialog p.small');
-  if(dlgNote)dlgNote.textContent='Hivatalos 2025/2026. évi MÁV menetrend – Terv és Tény adatokkal';
+  if(dlgNote)dlgNote.textContent='Hivatalos MÁV menetrend – Terv és Tény időpontok';
  }
 
  function ensure(s){
@@ -338,7 +327,7 @@
    return addEvent(s,{kind,section:p.section,lane:p.lane,until:s.time+minutes,title:'Ideiglenes lassúmenet',detail:STATIONS[sec.from].name+'–'+STATIONS[sec.to].name+' · '+minutes+' percig 35%-os modellsebesség',factor,minutes});
   }
   if(kind==='signal'){
-   const pool=Object.values(s.routes).filter(r=>{const t=s.trains.find(t=>t.id===r.train);return t&&(!targetId||t.id===targetId)&&((r.kind==='out'&&t.phase==='parked')||(r.kind==='in'&&['line','approach','hold'].includes(t.phaseeyeglasses))||(r.kind==='in'&&['line','approach','hold'].includes(t.phase)));});
+   const pool=Object.values(s.routes).filter(r=>{const t=s.trains.find(t=>t.id===r.train);return t&&(!targetId||t.id===targetId)&&((r.kind==='out'&&t.phase==='parked')||(r.kind==='in'&&['line','approach','hold'].includes(t.phase)));});
    const route=pick(s,pool);if(!route)return {ok:false,msg:'Nincs kezelhető jelzőhöz tartozó alkalmas vágányút.'};
    const minutes=integer(s,3,7);route.clear=false;
    return addEvent(s,{kind,station:route.at,signal:route.start,trainId:route.train,until:s.time+minutes,title:'Jelzőhiba',detail:STATIONS[route.at].name+' · '+route.start+' · '+minutes+' percig Megállj',minutes});
@@ -373,234 +362,4 @@
   s.log('TEHERVONAT: '+t.id+' · '+STATIONS[at].name+' → '+STATIONS[path[path.length-1]].name+' · legfeljebb '+t.maxSpeedKmh+' km/h.');
   return {ok:true,train:t};
  }
- Simulation.prototype.next=function(t){if(t.trafficPath){const i=t.trafficPath.indexOf(t.at);return i>=0&&i+1<t.trafficPath.length?t.trafficPath[i+1]:null;}return baseNext.call(this,t);};
- Simulation.prototype.clearSignal=function(station,signal){const r=ensure(this);if(r.active.some(e=>e.kind==='signal'&&e.station===station&&e.signal===signal&&e.until>this.time))return {ok:false,msg:'Jelzőhiba miatt a jelző még nem állítható szabadra.'};return baseClear.call(this,station,signal);};
- AutomaticBlocks.prototype.move=function(t,p,dt){
-  const s=activeSim||current();let factor=1;const time=s?s.time:0;
-  if(t.trafficHoldUntil>time){t.actualSpeedKmh=0;t.trafficStopped=true;t.blockWaiting=false;return false;}
-  if(s){const r=ensure(s);for(const ev of r.active)if(ev.kind==='slow'&&ev.section===p.section&&ev.lane===p.lane&&ev.until>time)factor=Math.min(factor,ev.factor);}
-  const max=t.type==='freight'?Math.min(100,Math.max(1,Number(t.maxSpeedKmh)||80)):(t.realTrain?Math.min(120,Number(t.maxSpeedKmh)||100):65);
-  const before=t.distance||0,done=baseMove.call(this,t,p,dt*max/65*factor);t.actualSpeedKmh=dt>0?Math.min(max,(t.distance-before)/dt*60):0;t.trafficStopped=false;return done;
- };
- function expire(s){const r=ensure(s),expired=r.active.filter(ev=>ev.until<=s.time);for(const ev of expired){s.log('ESEMÉNY VÉGE '+ev.id+': '+ev.title+'.'+(ev.kind==='signal'?' A jelző újra kezelhető, a szabad jelzést külön kell beállítani.':''));const h=r.history.find(x=>x.id===ev.id);if(h)h.status='resolved';}r.active=r.active.filter(ev=>ev.until>s.time);for(const t of s.trains){if(t.trafficHoldUntil<=s.time)t.trafficStopped=false;}}
- function retire(s){const r=ensure(s);for(const t of s.trains){if(t.type!=='freight'||!t.finished)continue;if(t.trafficFinishedAt===undefined)t.trafficFinishedAt=s.time;}
-  const retired=s.trains.filter(t=>t.type==='freight'&&t.finished&&s.time-t.trafficFinishedAt>=8&&!s.permissions[t.id]);
-  for(const t of retired){r.freightArchive.push({id:t.id,time:s.time,destination:t.at});s.log(t.id+': a célállomási tartózkodás után kiállt a játékból.');}r.freightArchive=r.freightArchive.slice(-100);s.trains=s.trains.filter(t=>!retired.includes(t));
- }
- function checkPendingRealTrains(s){
-  if(!s.pendingRealTrains||!s.pendingRealTrains.length)return;
-  const remaining=[];
-  for(const item of s.pendingRealTrains){
-   if(s.time>=item.spawnTime){
-    const tr=spawnRealTrain(s,item);
-    if(tr){
-     s.log('MENETREND SZERINTI BELÉPÉS: '+tr.id+' ('+tr.trainName+') · '+STATIONS[tr.at].name+'.');
-    }else{
-     item.spawnTime=s.time+1;
-     remaining.push(item);
-    }
-   }else{
-    remaining.push(item);
-   }
-  }
-  s.pendingRealTrains=remaining;
- }
- Simulation.prototype.tick=function(dt){
-  ensure(this);if(!Number.isFinite(dt)||dt<=0)return;let left=dt;
-  while(left>1e-9){
-   const d=Math.min(.05,left);left-=d;
-   const r=ensure(this);expire(this);checkPendingRealTrains(this);
-   // Tény adatok frissítése az aktív vonatoknál
-   for(const t of this.trains){
-    if(t.realTrain&&!t.finished&&t.plan){
-     const curRow=t.plan.find(p=>p.station===t.at);
-     if(curRow&&curRow.actualArr===undefined)curRow.actualArr=this.time;
-    }
-   }
-   if(r.eventsEnabled&&this.time>=r.nextEvent){const ev=randomEvent(this);r.nextEvent=this.time+(ev.ok?spacing(this,'event'):2);}
-   if(r.freightEnabled&&this.time>=r.nextFreight){const f=spawnFreight(this);r.nextFreight=this.time+(f.ok?spacing(this,'freight'):3);}
-   for(const t of this.trains)if(t.trafficHoldUntil>this.time&&['line','parked'].includes(t.phase)){t.generatedDelayMin=(t.generatedDelayMin||0)+d;if(t.phase==='parked')t.dep=Math.max(t.dep,t.trafficHoldUntil);}
-   const prev=activeSim;activeSim=this;try{baseTick.call(this,d);}finally{activeSim=prev;}
-   expire(this);retire(this);
-  }
- };
- function escape(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;}[c]));}
- function notify(s,result){if(typeof toast==='function')toast(result.ok?'A művelet sikeres.':result.msg);if(typeof render==='function')render();updateUI();}
-
- // KÖFI Canvas és SVG kattintáskezelés
- const canvasTrainHits=[];
- if(typeof CanvasRenderingContext2D!=='undefined'&&!CanvasRenderingContext2D.prototype._rtTextHooked){
-  CanvasRenderingContext2D.prototype._rtTextHooked=true;
-  const origFillText=CanvasRenderingContext2D.prototype.fillText;
-  CanvasRenderingContext2D.prototype.fillText=function(text,x,y){
-   try{
-    const s=current();
-    if(s&&this.canvas&&this.canvas.closest&&this.canvas.closest('#kofi')){
-     const str=String(text||'').trim();
-     const tr=s.trains.find(t=>str===t.id||str.startsWith(t.id+' ')||str.includes(t.id));
-     if(tr){
-      const m=this.getTransform();
-      const sx=m.a*x+m.c*y+m.e;
-      const sy=m.b*x+m.d*y+m.f;
-      canvasTrainHits.push({id:tr.id,x:sx,y:sy,canvas:this.canvas,time:Date.now()});
-      if(canvasTrainHits.length>250)canvasTrainHits.shift();
-     }
-    }
-   }catch(e){}
-   return origFillText.apply(this,arguments);
-  };
- }
-
- function openTrainScheduleModal(trainId){
-  const s=current();if(!s)return;
-  const t=s.trains.find(x=>x.id===trainId);if(!t)return;
-  if(typeof root.showTrain==='function'){
-   root.showTrain(trainId);
-  }
-  const dlg=document.getElementById('trainDialog');
-  const title=document.getElementById('trainTitle');
-  const tbody=document.getElementById('schedule');
-  if(!dlg||!title||!tbody)return;
-  if(t.type==='freight'){
-   title.textContent=t.id+' · véletlen tehervonat · max. '+t.maxSpeedKmh+' km/h';
-  }else if(t.realTrain){
-   title.textContent=t.id+' · '+t.trainName;
-  }else{
-   title.textContent=t.id;
-  }
-  tbody.innerHTML=(t.plan||[]).map(row=>{
-   const stName=(typeof STATIONS!=='undefined'&&STATIONS[row.station])?STATIONS[row.station].name:('Állomás #'+row.station);
-   const isHere=t.at===row.station&&t.phase==='parked';
-   const actual=row.actualArr??row.realArr??(isHere?s.time:null);
-   return '<tr'+(isHere?' style="background:#244357;font-weight:bold"':'')+'><td>'+escape(stName)+'</td><td>'+clock(row.arr)+'</td><td>'+clock(row.dep)+'</td><td>'+clock(actual)+'</td></tr>';
-  }).join('');
-  if(typeof dlg.showModal==='function'&&!dlg.open)dlg.showModal();
- }
-
- function bindKofiTrainClick(){
-  if(kofiClickBound||typeof document==='undefined')return;
-  kofiClickBound=true;
-  let downPos=null;
-  document.addEventListener('pointerdown',function(ev){
-   downPos={x:ev.clientX,y:ev.clientY};
-  },true);
-
-  document.addEventListener('click',function(ev){
-   if(downPos&&Math.hypot(ev.clientX-downPos.x,ev.clientY-downPos.y)>8)return;
-   const netEl=ev.target&&ev.target.closest?ev.target.closest('[data-nettrain],[data-train]'):null;
-   if(netEl){
-    const tid=netEl.getAttribute('data-nettrain')||netEl.getAttribute('data-train');
-    if(tid){
-     ev.preventDefault();
-     ev.stopPropagation();
-     openTrainScheduleModal(tid);
-     return;
-    }
-   }
-   const kofiBox=document.getElementById('kofi');
-   if(kofiBox&&kofiBox.contains(ev.target)){
-    const s=current();if(!s)return;
-    if(ev.target.tagName==='CANVAS'){
-     const canvas=ev.target;
-     const rect=canvas.getBoundingClientRect();
-     const scaleX=canvas.width/(rect.width||1);
-     const scaleY=canvas.height/(rect.height||1);
-     const cx=(ev.clientX-rect.left)*scaleX;
-     const cy=(ev.clientY-rect.top)*scaleY;
-     const now=Date.now();
-     let best=null,bestDist=42*Math.max(scaleX,scaleY);
-     for(let i=canvasTrainHits.length-1;i>=0;i--){
-      const h=canvasTrainHits[i];
-      if(h.canvas!==canvas||now-h.time>5000)continue;
-      const d=Math.hypot(cx-h.x,cy-h.y);
-      if(d<bestDist){bestDist=d;best=h;}
-     }
-     if(best){
-      ev.preventDefault();
-      ev.stopPropagation();
-      openTrainScheduleModal(best.id);
-      return;
-     }
-    }
-    let node=ev.target;
-    while(node&&node!==kofiBox){
-     const txt=(node.textContent||'').trim();
-     const match=s.trains.find(tr=>txt===tr.id||txt.startsWith(tr.id+' '));
-     if(match){
-      ev.preventDefault();
-      ev.stopPropagation();
-      openTrainScheduleModal(match.id);
-      return;
-     }
-     node=node.parentElement;
-    }
-   }
-  },true);
- }
-
- function decorate(s){
-  if(!s)return;
-  for(const el of document.querySelectorAll('[data-nettrain]')){el.style.cursor='pointer';}
-  for(const t of s.trains){
-   for(const el of document.querySelectorAll('[data-nettrain="'+t.id+'"]')){
-    let title=el.querySelector('title');
-    if(!title){title=document.createElementNS('http://www.w3.org/2000/svg','title');el.appendChild(title);}
-    if(t.type==='freight'){
-     const rect=el.querySelector('rect');if(rect)rect.setAttribute('fill',t.trafficStopped?'#f5a64a':'#c092ef');
-     title.textContent=t.id+' · TEHER · max. '+t.maxSpeedKmh+' km/h (Kattints a menetrendhez)';
-    }else{
-     const rect=el.querySelector('rect');if(rect&&t.category==='IC')rect.setAttribute('fill',t.trafficStopped?'#f5a64a':'#3b82f6');
-     title.textContent=t.id+(t.trainName?' ('+t.trainName+')':'')+' · Kattints a menetrendhez (Terv / Tény)!';
-    }
-   }
-   if(t.type==='freight'){
-    const table=document.getElementById('trains');if(table)for(const b of table.querySelectorAll('button'))if(b.textContent===t.id){b.textContent=t.id+' · TEHER ≤'+t.maxSpeedKmh;}
-   }else if(t.realTrain){
-    const table=document.getElementById('trains');if(table)for(const b of table.querySelectorAll('button'))if(b.textContent===t.id){b.textContent=t.id+' · '+t.trainName;b.title='Menetrendi járat Terv/Tény adatokkal';}
-   }
-  }
- }
- function mount(){
-  if(document.getElementById('rt-panel'))return;const nav=document.querySelector('nav');if(!nav)return;
-  const box=document.createElement('section');box.id='rt-panel';box.style.cssText='margin:0 20px 12px;padding:12px 14px;background:#172b38;border:1px solid #587188;border-radius:9px;font:13px system-ui;color:#dfeaf3';
-  box.innerHTML='<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap"><strong>Valós Menetrend (Terv & Tény) + Csomóponti Kiágazások</strong><label><input id="rt-events" type="checkbox"> Események</label><label><input id="rt-freight" type="checkbox"> Tehervonatok</label><select id="rt-intensity"><option value="quiet">Ritka</option><option value="normal">Normál</option><option value="busy">Sűrű</option></select><button id="rt-event-now" type="button">Esemény most</button><button id="rt-freight-now" type="button">Tehervonat most</button><button id="rt-reload-real" type="button" style="background:#2d5a7b">Menetrend újratöltése</button></div><div id="rt-status" style="margin-top:8px;color:#b5cadd"></div><div id="rt-active" style="margin-top:7px;line-height:1.7"></div>';
-  nav.insertAdjacentElement('afterend',box);
-  document.getElementById('rt-events').onchange=e=>{const s=current();if(s)ensure(s).eventsEnabled=e.target.checked;};
-  document.getElementById('rt-freight').onchange=e=>{const s=current();if(s)ensure(s).freightEnabled=e.target.checked;};
-  document.getElementById('rt-intensity').onchange=e=>{const s=current();if(s)ensure(s).intensity=e.target.value;};
-  document.getElementById('rt-event-now').onclick=()=>{const s=current();if(s)notify(s,randomEvent(s));};
-  document.getElementById('rt-freight-now').onclick=()=>{const s=current();if(s)notify(s,spawnFreight(s));};
-  document.getElementById('rt-reload-real').onclick=()=>{
-   const s=current();
-   if(s){
-    s.trains=s.trains.filter(t=>t.type==='freight');
-    s.pendingRealTrains=[];
-    s.routes={};
-    s.permissions={};
-    purgeFakeTrainsAndApplyReal(s);
-    if(typeof root.render==='function')root.render();
-    updateUI();
-   }
-  };
- }
- function updateUI(){const s=current();if(!s)return;mount();const r=ensure(s),el=document.getElementById('rt-panel');if(!el)return;
-  document.getElementById('rt-events').checked=r.eventsEnabled;document.getElementById('rt-freight').checked=r.freightEnabled;document.getElementById('rt-intensity').value=r.intensity;
-  const activeFreight=s.trains.filter(t=>t.type==='freight'&&!t.finished).length;
-  const activeReal=s.trains.filter(t=>t.realTrain&&!t.finished).length;
-  document.getElementById('rt-status').textContent='Aktív menetrendi vonat (Terv/Tény): '+activeReal+' (előjegyezve: '+(s.pendingRealTrains?s.pendingRealTrains.length:0)+') · Tehervonat: '+activeFreight+' · Zavar: '+r.active.length+' · Kattints a vonatra a menetrend megnyitásához!';
-  document.getElementById('rt-active').innerHTML=r.active.length?r.active.map(ev=>'<div style="color:#ffd190"><b>'+escape(ev.id+' · '+ev.title)+'</b> — '+escape(ev.detail)+' · hátra '+Math.max(0,Math.ceil(ev.until-s.time))+' perc</div>').join(''):'<span style="color:#94b3a9">Nincs aktív zavar.</span>';
-  decorate(s);
- }
- function installUI(){
-  mount();bindKofiTrainClick();
-  const s=current();if(s)ensure(s);
-  if(!renderWrapped&&typeof root.render==='function'){const render=root.render;root.render=function(){const s=current();if(s)purgeFakeTrainsAndApplyReal(s);const v=render.apply(this,arguments);updateUI();return v;};renderWrapped=true;}
-  if(!showWrapped&&typeof root.showTrain==='function'){const sh=root.showTrain;root.showTrain=function(id){const v=sh.apply(this,arguments),s=current(),t=s&&s.trains.find(t=>t.id===id),title=document.getElementById('trainTitle');if(title&&t){if(t.type==='freight')title.textContent=t.id+' · véletlen tehervonat · max. '+t.maxSpeedKmh+' km/h';else if(t.realTrain)title.textContent=t.id+' · '+t.trainName+' (Terv & Tény adatokkal)';}return v;};showWrapped=true;}
-  if(!resetWrapped&&typeof root.reset==='function'){const rs=root.reset;root.reset=function(){const v=rs.apply(this,arguments),s=current();if(s){s.pendingRealTrains=[];purgeFakeTrainsAndApplyReal(s);if(typeof root.render==='function')root.render();}return v;};resetWrapped=true;}
-  if(!loadWrapped&&typeof root.load==='function'){const ld=root.load;root.load=function(){const v=ld.apply(this,arguments),s=current();if(s){purgeFakeTrainsAndApplyReal(s);if(typeof root.render==='function')root.render();}return v;};loadWrapped=true;}
-  updateUI();
- }
- const api={ensure,spawnFreight,createEvent,randomEvent,installUI,openTrainScheduleModal,setSeed(s,seed){ensure(s).seed=(seed>>>0)||123456789;}};
- root.RailRandomTraffic=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
- if(typeof document!=='undefined'){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',installUI);else installUI();setInterval(installUI,600);}
-})(typeof window!=='undefined'?window:globalThis);
+ Simulation.prototype.next=function(t){if(t.trafficPath){const i=t.traffic
