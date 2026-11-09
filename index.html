@@ -8063,20 +8063,20 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
 
     // ───────────────────────────────────────────────────────────────────
     // 2) KIÁGAZÁSOK — egy-egy modellezett állomásköz egy modellhatárig (mint a godisai Komló-ág).
-    //    A kiágazás oldala (L = Budapest felőli, R = Pécs felőli állomásvég) játékparaméter,
+    //    A kiágazás oldala (L = Budapest felőli, R = Pécs felőli állomásvég; vert: up = felül, down = alul) játékparaméter,
     //    nem ellenőrzött ÁVU-adat; a listában módosítható.
     // ───────────────────────────────────────────────────────────────────
     const LINE_BRANCHES = [
       { id: "kelenfold-keleti", station: 1, side: "L", name: "Budapest-Keleti felé" },
       { id: "kelenfold-gyor", station: 1, side: "R", name: "Győr felé" },
       { id: "kelenfold-szfvar", station: 1, side: "R", name: "Székesfehérvár felé" },
-      { id: "pszabolcs-szfvar", station: 14, side: "L", name: "Székesfehérvár felé" },
-      { id: "pszabolcs-dunaujvaros", station: 14, side: "R", name: "Dunaújváros felé" },
+      { id: "pszabolcs-dunaujvaros", station: 14, side: "R", vert: "up", name: "Dunaújváros felé" },
+      { id: "pszabolcs-szfvar", station: 14, side: "R", vert: "down", name: "Székesfehérvár felé" },
       { id: "sarbogard-szfvar", station: 18, side: "L", name: "Székesfehérvár felé" },
       { id: "retszilas-dunaujvaros", station: 19, side: "L", name: "Dunaújváros felé" },
       { id: "retszilas-szekszard", station: 19, side: "R", name: "Szekszárd felé" },
-      { id: "dombovar-bataszek", station: 33, side: "L", name: "Bátaszék felé" },
-      { id: "dombovar-kaposvar", station: 33, side: "R", name: "Kaposvár felé" },
+      { id: "dombovar-bataszek", station: 33, side: "R", vert: "up", name: "Bátaszék felé" },
+      { id: "dombovar-kaposvar", station: 33, side: "R", vert: "down", name: "Kaposvár felé" },
       { id: "szentlorinc-szigetvar", station: 43, side: "L", name: "Szigetvár felé" },
       { id: "szentlorinc-sellye", station: 43, side: "R", name: "Sellye felé" },
     ];
@@ -8381,12 +8381,17 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
     };
 
     function branchStub(s, def, k, sides) {
-      // k: hányadik kiágazás ezen az oldalon; a külső vonali vágányból ágazik ki, felfelé.
+      // k: hányadik kiágazás ezen az oldalon és irányban; a külső vonali vágányból ágazik ki, fölfelé vagy lefelé.
       const g = geom(s),
         sd = sides[def.side],
-        outer = sd.double ? Math.min(...sd.lanes.map((l) => l.y)) : g.mid;
-      const yb = outer - 44 - k * 36;
-      return def.side === "L" ? { pts: [[15, yb], [68, yb], [130, outer]], label: [20, yb - 21], anchor: "start", sig: [68, yb] } : { pts: [[1185, yb], [1132, yb], [1070, outer]], label: [1180, yb - 21], anchor: "end", sig: [1132, yb] };
+        down = def.vert === "down",
+        ys = sd.double ? sd.lanes.map((l) => l.y) : [g.mid],
+        outer = down ? Math.max(...ys) : Math.min(...ys),
+        yb = down ? outer + 150 + k * 36 : outer - 44 - k * 36,
+        ly = down ? yb + 24 : yb - 21;
+      return def.side === "L"
+        ? { pts: [[15, yb], [68, yb], [130, outer]], label: [20, ly], anchor: "start", sig: [68, yb] }
+        : { pts: [[1185, yb], [1132, yb], [1070, outer]], label: [1180, ly], anchor: "end", sig: [1132, yb] };
     }
     function branchTrainBox(t, x, y) {
       return `<g onclick="showTrain('${t.id}')" style="cursor:pointer"><rect x="${x - 27}" y="${y - 9}" width="54" height="18" rx="3" fill="#ffc36c" stroke="#603925" stroke-width="1.5"/><text x="${x}" y="${y + 4}" text-anchor="middle" fill="#2b1a05" font-size="10" font-weight="700">${esc(t.id)}</text></g>`;
@@ -8434,9 +8439,10 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
           html += drawPath(d, r.releaseAt ? "#ffd16f" : "#f2f4df", 8, 'opacity=".85"');
         });
       // kiágazási csonkok
-      const bySide = { L: 0, R: 0 };
+      const bySide = {};
       for (const def of branches) {
-        const k = bySide[def.side]++,
+        const key = def.side + (def.vert === "down" ? "d" : "u"),
+          k = (bySide[key] = (bySide[key] || 0) + 1) - 1,
           st = branchStub(s, def, k, sides),
           b = LB.state(sim, def.id),
           d = "M" + st.pts.map((p) => p.join(",")).join("L");
@@ -8448,7 +8454,7 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
             8,
             'opacity=".85"',
           );
-        html += `<circle cx="${st.sig[0]}" cy="${st.sig[1] - 10}" r="5" fill="${b.route?.clear ? "#65ff7e" : "#ff535e"}"/><text x="${st.label[0]}" y="${st.label[1]}" text-anchor="${st.anchor}" fill="#17321e" font-size="11">${esc(def.name)} · modellhatár${b.edge ? " · " + esc(b.edge) : ""}</text>`;
+        html += `<circle cx="${st.sig[0]}" cy="${st.sig[1] + (def.vert === "down" ? 10 : -10)}" r="5" fill="${b.route?.clear ? "#65ff7e" : "#ff535e"}"/><text x="${st.label[0]}" y="${st.label[1]}" text-anchor="${st.anchor}" fill="#17321e" font-size="11">${esc(def.name)} · modellhatár${b.edge ? " · " + esc(b.edge) : ""}</text>`;
         // menetek a csonkon
         for (const t of sim.trains) {
           if (!t.lineBranch || t.finished || t.lineBranch.id !== def.id) continue;
@@ -8617,19 +8623,20 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
       for (const def of LINE_BRANCHES) {
         const node = NW.layout.nodes[def.station];
         if (!node) continue;
-        const key = def.station + def.side,
+        const down = def.vert === "down",
+          key = def.station + def.side + (down ? "d" : "u"),
           k = (counts[key] = (counts[key] || 0) + 1) - 1,
           b = LB.state(sim, def.id),
           x0 = def.side === "L" ? node.x : node.x + node.w,
           dx = def.side === "L" ? -1 : 1,
-          yb = 250 - k * 62,
+          yb = down ? 640 + k * 62 : 250 - k * 62,
           x1 = x0 + dx * 110,
           x2 = x0 + dx * 250,
           g = document.createElementNS("http://www.w3.org/2000/svg", "g");
         g.setAttribute("data-linebranch", def.id);
         const tx = Math.min(x1, x2),
           w = Math.abs(x2 - x1);
-        g.innerHTML = `<path d="M${x0} 400L${x1} ${yb}H${x2}" stroke="${b.edge ? "#ff747e" : "#e5b45f"}" stroke-width="4" fill="none"/><circle cx="${x1}" cy="${yb - 11}" r="4" fill="${b.route?.clear ? "#66ee95" : "#ff6c77"}"/><rect x="${tx}" y="${yb - 48}" width="${w}" height="30" rx="3" fill="#213f55" stroke="#e5b45f"/><text x="${tx + w / 2}" y="${yb - 36}" text-anchor="middle" fill="white" font-size="10">${esc(def.name)} · modellhatár</text><text x="${tx + w / 2}" y="${yb - 24}" text-anchor="middle" fill="#ffd085" font-size="9">${b.edge ? esc(b.edge) : "szabad"}${b.route ? " · vágányút " + (b.route.clear ? "Szabad" : "Megállj") : ""}</text>`;
+        g.innerHTML = `<path d="M${x0} 400L${x1} ${yb}H${x2}" stroke="${b.edge ? "#ff747e" : "#e5b45f"}" stroke-width="4" fill="none"/><circle cx="${x1}" cy="${yb + (down ? 11 : -11)}" r="4" fill="${b.route?.clear ? "#66ee95" : "#ff6c77"}"/><rect x="${tx}" y="${down ? yb + 18 : yb - 48}" width="${w}" height="30" rx="3" fill="#213f55" stroke="#e5b45f"/><text x="${tx + w / 2}" y="${down ? yb + 30 : yb - 36}" text-anchor="middle" fill="white" font-size="10">${esc(def.name)} · modellhatár</text><text x="${tx + w / 2}" y="${down ? yb + 42 : yb - 24}" text-anchor="middle" fill="#ffd085" font-size="9">${b.edge ? esc(b.edge) : "szabad"}${b.route ? " · vágányút " + (b.route.clear ? "Szabad" : "Megállj") : ""}</text>`;
         g.style.cursor = "pointer";
         g.onpointerdown = (ev) => {
           ev.stopPropagation();
