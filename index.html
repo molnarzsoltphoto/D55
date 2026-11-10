@@ -8336,6 +8336,70 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
       return r;
     };
 
+
+    // ───────────────────────────────────────────────────────────────────
+    // 5) MENETRENDI VONATOK A KIÁGAZÁSOKON — globalThis.BRANCH_TIMETABLE (adatok/kiagazas-menetrend.csv → build.sh)
+    //    { id, number, branch, via: "from"|"to", dir, stops:[{station, arr, dep}] }  stops csak a fővonali rész;
+    //    "from": a vonat a kiágazás felől érkezik, stops[0] a csatlakozó állomás; "to": stops.at(-1) a csatlakozó állomás, onnan a kiágazáson távozik.
+    // ───────────────────────────────────────────────────────────────────
+    const branchPlan = (svc, offset) => (svc.stops.length > 1 ? makeTimetablePlan(svc, offset) : [{ station: svc.stops[0].station, arr: svc.stops[0].arr + offset, dep: svc.stops[0].dep + offset, source: true }]);
+    P.branchTraffic = function () {
+      const TT = globalThis.BRANCH_TIMETABLE || [];
+      if (!TT.length) return;
+      this.btSpawned ||= {};
+      for (let day = Math.floor(this.time / 1440) - 1; day <= Math.floor((this.time + 3) / 1440); day++)
+        for (const svc of TT) {
+          const key = day + ":" + svc.id;
+          if (this.btSpawned[key]) continue;
+          const def = LB.byId(svc.branch);
+          if (!def) { this.btSpawned[key] = "nobranch"; continue; }
+          const offset = day * 1440, plan = branchPlan(svc, offset), first = plan[0].dep, last = plan.at(-1).arr, lead = TRAVEL + THROAT + 2;
+          if (last < (this.serviceStart ?? 0) - lead) { this.btSpawned[key] = "past"; continue; }
+          const id = svc.number + (day === 0 ? "" : "/D" + day);
+          if (this.trains.some((t) => t.id === id)) { this.btSpawned[key] = true; continue; }
+          if (svc.via === "from") {
+            if (plan[0].arr - lead > this.time) continue;
+            const track = STATIONS[def.station].tracks.find((tr) => !this.closed[`${def.station}:${tr}`] && !this.busy(def.station, tr, id));
+            if (!track) continue;
+            this.trains.push({ id, number: svc.number, at: def.station, dir: svc.dir || (def.side === "L" ? 1 : -1), track, dep: plan[0].dep, phase: "branchRequest", delay: 0, finished: false, history: [], plan, menetrendi: true, kind: "passenger", maxSpeed: 120, endStation: plan.at(-1).station, lineBranch: { id: def.id, direction: "in" }, scheduledBranch: true, sourceLines: svc.lines || [] });
+            this.log(`${id}: menetrendi vonat ${def.name.replace(" felé", " felől")}, érkezés ${STATIONS[def.station].name} ${fmt(plan[0].arr)}.`);
+          } else {
+            if (first > this.time + 3) continue;
+            let at = plan[0].station;
+            if (first < (this.serviceStart ?? 0)) { const past = plan.filter((x) => STATIONS[x.station].control && x.dep <= this.serviceStart); if (past.length) at = past.at(-1).station; }
+            const track = this.free(at);
+            if (!track) continue;
+            const point = plan.find((x) => x.station === at);
+            this.trains.push({ id, number: svc.number, at, dir: svc.dir, track, dep: Math.max(this.time, point.dep), phase: "parked", delay: Math.max(0, this.time - point.dep), history: [], plan, finished: false, menetrendi: true, kind: "passenger", maxSpeed: 120, endStation: plan.at(-1).station, viaBranch: def.id, sourceLines: svc.lines || [] });
+          }
+          this.btSpawned[key] = true;
+        }
+      // a csatlakozó állomásra ért "to" vonat átadása a kiágazásra
+      for (const t of this.trains) {
+        if (!t.viaBranch || t.lineBranch || !t.finished || t.phase !== "parked") continue;
+        const def = LB.byId(t.viaBranch);
+        if (!def || t.at !== def.station) continue;
+        t.finished = false; delete t.finishedAt;
+        t.lineBranch = { id: def.id, direction: "out" };
+        t.branchPermission = false;
+        delete t.viaBranch;
+        this.log(`${t.id}: tovább a kiágazáson (${def.name}).`);
+      }
+    };
+    // beérkezett menetrendi kiágazási vonat: folytatás a fővonalon a terv szerint, vagy végállomás
+    const prevAdvance = LB.advance.bind(LB);
+    LB.advance = function (s) {
+      prevAdvance(s);
+      for (const t of s.trains) {
+        if (!t.scheduledBranch || t.phase !== "parked" || !t.lineBranch || t.lineBranch.id !== null) continue;
+        delete t.scheduledBranch;
+        if (t.plan.length > 1) { delete t.lineBranch; t.branchPermission = false; t.dep = Math.max(s.time, t.plan[0].dep); t.history = [{ station: t.at, arr: s.time }]; t.delay = Math.max(0, s.time - t.plan[0].arr); }
+        else { delete t.lineBranch; t.finished = true; t.finishedAt = s.time; t.delay = Math.max(0, s.time - t.plan[0].arr); s.log(`${t.id}: végállomás ${STATIONS[t.at].name}.`); }
+      }
+    };
+    const prevTick2 = P.tick;
+    P.tick = function (dt) { const r = prevTick2.call(this, dt); this.branchTraffic(); return r; };
+
     // ───────────────────────────────────────────────────────────────────
     // 3) KÉTVÁGÁNYÚ ÁLLOMÁSI PULT — ahol az állomásköz kétvágányú, a pulton is két vonali vágány.
     //    Vágánykiosztás a KÖFI-vel azonos: 1. (felső) vonali vágány Pécs felé, 2. (alsó) Budapest felé,
@@ -8409,6 +8473,11 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
       return `<g onclick="showTrain('${t.id}')" style="cursor:pointer"><rect x="${x - 27}" y="${y - 9}" width="54" height="18" rx="3" fill="#ffc36c" stroke="#603925" stroke-width="1.5"/><text x="${x}" y="${y + 4}" text-anchor="middle" fill="#2b1a05" font-size="10" font-weight="700">${esc(t.id)}</text></g>`;
     }
 
+    svgSignal = function (s, name, x, y, dir) {
+      const r = sim.getRoute(s, name), clear = !!r?.clear, tx = dir === 1 ? x + 40 : x - 40;
+      return `<g class="point" tabindex="0" role="button" aria-label="${name} jelző" onclick="point('${name}')" onkeydown="if(event.key==='Enter')point('${name}')"><path d="M${x} ${y}v-17h${dir === 1 ? 18 : -18}" stroke="#192e20" stroke-width="3" fill="none"/><rect x="${dir === 1 ? x + 10 : x - 35}" y="${y - 25}" width="25" height="15" rx="7" fill="#17291c"/><circle cx="${dir === 1 ? x + 22 : x - 23}" cy="${y - 18}" r="5" fill="${clear ? "#65ff7e" : "#ff535e"}"/><text x="${tx}" y="${y - 14}" text-anchor="${dir === 1 ? "start" : "end"}" fill="#19321f" font-size="11">${name}</text></g>`;
+    };
+
     drawStation = function () {
       const s = sim.selected,
         g = geom(s),
@@ -8448,7 +8517,7 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
         if (selectedL) html += drawPath(`M215 ${yL}L350 ${y}H440`, "#d6dfc6", 4);
         if (selectedR) html += drawPath(`M760 ${y}H850L985 ${yR}`, "#d6dfc6", 4);
         html += drawPath(`M350 ${y}H850`, closed ? "#d9a358" : occ ? "#ff5b63" : "#bac7b2", 6);
-        html += `<text x="600" y="${y + 26}" text-anchor="middle" fill="#17321e" font-size="12">${tr}. vágány${closed ? " · LEZÁRVA" : ""}${queue > (occ ? 1 : 0) ? ` · sorban: ${queue - (occ ? 1 : 0)}` : ""}</text>`;
+        html += `<text x="600" y="${y + 26}" text-anchor="middle" fill="#17321e" font-size="12">${tr}. vágány${closed ? " · LEZÁRVA" : ""}${queue > 1 ? ` · sorban: ${queue}` : ""}</text>`;
         if (g.tracks.indexOf(tr) < 5) html += `<rect x="462" y="${y + 33}" width="276" height="7" fill="#c7cead" rx="2"/>`;
       });
       Object.values(sim.routes)
@@ -8614,7 +8683,7 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
         if (o.value === "__through__") continue;
         o.dataset.base ??= o.textContent;
         const q = sim.queueAhead(sim.selected, o.value, "__nobody__");
-        o.textContent = o.dataset.base + (q.length ? ` · sorban fogadható (előtte ${q.length})` : "");
+        o.textContent = o.dataset.base + (q.length ? ` · foglalt/lefoglalt, sorban fogadható (előtte ${q.length})` : "");
       }
     }
     function tidyPanels() {
@@ -8674,5 +8743,8 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
   else install();
 })();
 
+</script>
+<script id="kiagazas-menetrend">
+"use strict";globalThis.BRANCH_TIMETABLE=[];
 </script>
 </body></html>

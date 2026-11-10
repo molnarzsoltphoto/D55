@@ -1,5 +1,7 @@
 # VONAL 40 – 0.9: kétvágányú pult, sorrendtartó engedély, kiágazások
 
+**0.9.1:** a kétvágányú állomásvégeken mindkét vonali vágány a saját váltóján csatlakozik (saját térfél vágányai), köztük X átmenő kitérővel; a jelzőfeliratok a jelző mellé kerültek. **Menetrendi vonatok a kiágazásokon:** `adatok/kiagazas-menetrend.csv` (formátum a `adatok/kiagazas_konverter.py` fejlécében) → `build.sh` → a vonatok a kiágazás felől érkeznek a csatlakozó állomásra (ott végződnek vagy a fővonalon folytatják), illetve a fővonalról érkezve a kiágazáson távoznak. A fájl most üres: a kiágazó vonalak menetrendjét kézzel kell kinyerni a MÁV PDF-ekből, ugyanúgy, mint a 40-es vonalét.
+
 Az `index.html` végén új blokk: `<script id="v40-ketvaganyu-sor-kiagazas">` (forrása: `patch/v40-ketvaganyu-sor-kiagazas.js`, beillesztés: `./build.sh`). A korábbi v40-* blokkokra épül, azokat nem írja át.
 
 - **Kétvágányú állomási pult.** Ahol az állomásköz kétvágányú (Budapest-Déli–Pusztaszabolcs), a pulton is két vonali vágány csatlakozik: 1. (felső) vágány Pécs felé, 2. (alsó) Budapest felé, a KÖFI-vel azonos kiosztással és az ott kezelt menetirányt követve. Az A/B bejárati jelző a beérkező, a VL/VR kijárat a kimenő vágányon; a közeledő és kijáró vonatok a saját vonali vágányukon mozognak. A foglalt vonali vágány pirosas.
