@@ -123,6 +123,56 @@
       return r;
     };
 
+    // Meglévő hiba javítása (automata állomások): a gép a bejárati jelzőhöz az előreengedélyek alapján a távolabbi, később
+    // érkező vonatnak is lezárta a vágányutat, így a jelző előtt álló elöl haladó vonat nem kaphatott bejáratot → teljes torlódás.
+    // Bejárati vágányút ezért csak a sorban első (a jelzőhöz legközelebbi) vonatnak állítható.
+    const PHASE_RANK = { hold: 0, entering: 0, approach: 1, line: 2, leaving: 3, parked: 4 };
+    P.entryLeader = function (station, dir) {
+      let best = null, bestKey = null;
+      for (const t of this.trains) {
+        if (t.finished || t.lineBranch || t.branchManaged || t.dir !== dir) continue;
+        const p = this.permissions[t.id];
+        if (!p || p.to !== station) continue;
+        // elöl az, aki már a jelzőnél áll; a nyílt vonalon a szakaszban megtett út (distance) dönt, nem az engedély sorszáma
+        const key = [PHASE_RANK[t.phase] ?? 5, -(t.phase === "line" ? t.distance || 0 : 0), t.lineStart ?? p.seq ?? 0];
+        if (!bestKey || key[0] < bestKey[0] || (key[0] === bestKey[0] && (key[1] < bestKey[1] || (key[1] === bestKey[1] && key[2] < bestKey[2])))) { best = t.id; bestKey = key; }
+      }
+      return best;
+    };
+    // Kétvágányú állomásvég: a két vonali vágány saját váltóval csatlakozik, ezért a bejárat (egyik vonali vágány) és a kijárat
+    // (másik vonali vágány) egyszerre is beállítható, ha egyik sem megy át az átmenő kitérőn. Ugyanazt a vonali vágányt
+    // vagy a kitérőt érintő vágányutak továbbra is kizárják egymást.
+    function sideUse(station, side, track, kind) {
+      const sd = lineSides(station)[side];
+      if (!sd.double) return null;
+      const g = geom(station), nat = naturalLane(sd, g.y(track), g.mid),
+        ln = sd.lanes.find((l) => l.y === (kind === "in" ? sd.in : sd.out)) || sd.lanes[0];
+      return { lane: ln.lane, cross: !nat || nat.lane !== ln.lane };
+    }
+    const prevSetRoute = P.setRoute;
+    P.setRoute = function (station, start, goal) {
+      const d = this.describeRoute(station, start, goal);
+      if (d?.train && !playerOwns(this, station)) {
+        const dt = this.trains.find((t) => t.id === d.train);
+        // kijárati vágányút csak az állomáson álló vonatnak: az előre lezárt kijárat az egész állomásvéget megfogta, ebből lett a torlódás
+        if (d.kind === "out" && dt && !(dt.at === station && dt.phase === "parked")) return { ok: false, msg: `${d.train}: még nincs az állomáson, a kijárati vágányút később állítható.` };
+        if (d.kind === "in") {
+          // csak annak, akinek az érvényes (nem előre kért) engedélye ide szól, és közülük is a legközelebbinek
+          // még az előző állomáson álló vonatnak sem (addig egy áthaladó vonat megelőzheti)
+          if (dt && dt.phase === "parked") return { ok: false, msg: `${d.train}: még nem indult el, bejárati vágányút az indulása után állítható.` };
+          if (this.permissions[d.train]?.to !== station) return { ok: false, msg: `${d.train}: még nem ehhez az állomáshoz közelít, bejárati vágányút később állítható.` };
+          const lead = this.entryLeader(station, d.dir);
+          if (lead && lead !== d.train) return { ok: false, msg: `Sorrend: előbb ${lead} érkezik ${STATIONS[station].name} állomásra.` };
+        }
+      }
+      this._routeCtx = d ? { station, side: d.side, track: d.track, kind: d.kind } : null;
+      try {
+        return prevSetRoute.call(this, station, start, goal);
+      } finally {
+        this._routeCtx = null;
+      }
+    };
+
     P.clearSignal = function (station, signal) {
       const route = this.getRoute(station, signal);
       if (route?.kind === "in" && route.train) {
@@ -148,9 +198,10 @@
     //    nem ellenőrzött ÁVU-adat; a listában módosítható.
     // ───────────────────────────────────────────────────────────────────
     const LINE_BRANCHES = [
-      { id: "kelenfold-keleti", station: 1, side: "L", name: "Budapest-Keleti felé" },
-      { id: "kelenfold-gyor", station: 1, side: "R", name: "Győr felé" },
-      { id: "kelenfold-szfvar", station: 1, side: "R", name: "Székesfehérvár felé" },
+      // double: irányonként külön vágány (egyszerre egy be- és egy kimenő vonat lehet a szakaszon); ownThroat: saját bejárati vágányok, nem zárja a fővonali állomásvéget
+      { id: "kelenfold-keleti", station: 1, side: "L", name: "Budapest-Keleti felé", double: true, ownThroat: true, travel: 3 },
+      { id: "kelenfold-gyor", station: 1, side: "R", name: "Győr felé", double: true, ownThroat: true, travel: 3 },
+      { id: "kelenfold-szfvar", station: 1, side: "R", vert: "down", name: "Székesfehérvár felé", double: true, ownThroat: true, travel: 3 },
       { id: "pszabolcs-dunaujvaros", station: 14, side: "R", vert: "up", name: "Dunaújváros felé" },
       { id: "pszabolcs-szfvar", station: 14, side: "R", vert: "down", name: "Székesfehérvár felé" },
       { id: "sarbogard-szfvar", station: 18, side: "L", name: "Székesfehérvár felé" },
@@ -158,6 +209,7 @@
       { id: "retszilas-szekszard", station: 19, side: "R", name: "Szekszárd felé" },
       { id: "dombovar-bataszek", station: 33, side: "R", vert: "up", name: "Bátaszék felé" },
       { id: "dombovar-kaposvar", station: 33, side: "R", vert: "down", name: "Kaposvár felé" },
+      { id: "godisa-komlo", station: 37, side: "R", vert: "down", name: "Komló felé (menetrendi)" },
       { id: "szentlorinc-szigetvar", station: 43, side: "L", name: "Szigetvár felé" },
       { id: "szentlorinc-sellye", station: 43, side: "R", name: "Sellye felé" },
     ];
@@ -179,6 +231,11 @@
       list: LINE_BRANCHES,
       byId: (id) => LINE_BRANCHES.find((b) => b.id === id),
       at: (station) => LINE_BRANCHES.filter((b) => b.station === station),
+      travel: (def) => def?.travel ?? TRAVEL,
+      edgeKey: (def, direction) => (def.double ? (direction === "in" ? "edgeIn" : "edgeOut") : "edge"),
+      holds: (b, id) => b.edge === id || b.edgeIn === id || b.edgeOut === id,
+      release(b, id) { for (const k of ["edge", "edgeIn", "edgeOut"]) if (b[k] === id) b[k] = null; },
+      occupants: (b) => [b.edge, b.edgeIn, b.edgeOut].filter(Boolean),
       state(s, id) {
         s.lineBranches ||= {};
         const def = this.byId(id);
@@ -255,16 +312,21 @@
         }
         const def = this.byId(t.lineBranch.id);
         if (!def) return { ok: false, msg: "A menetnek még nincs kiválasztott kiágazása." };
-        const b = this.state(s, def.id);
-        if (b.edge) return { ok: false, msg: `${def.name}: a kiágazási szakasz foglalt vagy lefoglalt (${b.edge}).` };
+        const b = this.state(s, def.id), ek = this.edgeKey(def, t.lineBranch.direction);
+        if (b[ek]) return { ok: false, msg: `${def.name}: a kiágazási szakasz foglalt vagy lefoglalt (${b[ek]}).` };
         if ((t.lineBranch.direction === "in" && t.phase !== "branchRequest") || (t.lineBranch.direction === "out" && t.phase !== "parked"))
           return { ok: false, msg: "Ebben az állapotban nem engedélyezhető." };
         if (t.lineBranch.direction === "in") {
-          if (s.closed[`${def.station}:${t.track}`] || s.busy(def.station, t.track, id))
-            return { ok: false, msg: `${STATIONS[def.station].name}, ${t.track}. vágány foglalt vagy lezárt.` };
+          if (b.reserved && b.reserved.id !== id) return { ok: false, msg: `${def.name}: másik érkező vonat fogadása folyamatban.` };
+          if (s.closed[`${def.station}:${t.track}`] || s.busy(def.station, t.track, id)) {
+            // menetrendi vonatnál a gép másik szabad vágányt keres; kézi menetnél a kezelő dönt
+            const alt = t.menetrendi ? STATIONS[def.station].tracks.find((tr) => !s.closed[`${def.station}:${tr}`] && !s.busy(def.station, tr, id)) : null;
+            if (!alt) return { ok: false, msg: `${STATIONS[def.station].name}, ${t.track}. vágány foglalt vagy lezárt.` };
+            t.track = alt;
+          }
           b.reserved = { id, track: t.track };
         }
-        b.edge = id;
+        b[ek] = id;
         t.branchPermission = true;
         if (t.lineBranch.direction === "in") {
           t.phase = "branchLineIn";
@@ -278,12 +340,15 @@
         if (!t || !t.branchPermission) return { ok: false, msg: "Előbb kiágazási engedély kell." };
         const def = this.byId(t.lineBranch.id),
           b = this.state(s, def.id);
-        if (b.edge !== id) return { ok: false, msg: "A szakaszt másik menet foglalja." };
+        if (!this.holds(b, id)) return { ok: false, msg: "A szakaszt másik menet foglalja." };
         if (b.route) return { ok: false, msg: "Ezen a kiágazáson már van lezárt vágányút." };
-        if (prevThroat.call(s, def.station, def.side) || Object.values(s.lineBranches).some((x) => x !== b && x.station === def.station && x.route?.side === def.side))
+        // az állomásvég kizárása csak a kézzel kezelt állomáson él; automata állomáson a gép a fővonali bejárati vágányutat
+        // jóval a vonat érkezése előtt lezárja, ami a kiágazási vonatokat feleslegesen negyedórákra megfogná
+        const exclusive = !def.ownThroat && playerOwns(s, def.station);
+        if (exclusive && (prevThroat.call(s, def.station, def.side) || Object.entries(s.lineBranches).some(([k, x]) => x !== b && !this.byId(k)?.ownThroat && x.station === def.station && x.route?.side === def.side)))
           return { ok: false, msg: "Az állomásvég másik vágányút miatt lezárt." };
         if (!["branchLineIn", "branchHold", "branchReady"].includes(t.phase)) return { ok: false, msg: "A menet állapota nem megfelelő." };
-        b.route = { id, track: t.track, kind: t.lineBranch.direction, side: def.side, clear: false, everCleared: false, releaseAt: null };
+        b.route = { id, track: t.track, kind: t.lineBranch.direction, side: def.side, own: !exclusive, clear: false, everCleared: false, releaseAt: null };
         s.switches[`${def.station}:${def.side}`] = t.track;
         s.log(`${STATIONS[def.station].name}: kiágazási vágányút ${def.name}, ${t.track}. vágány, első lezárás.`);
         return { ok: true };
@@ -323,7 +388,7 @@
       handoff(s, id, dir) {
         const t = this.train(s, id);
         if (!t || t.phase !== "parked") return { ok: false, msg: "Csak álló menet adható át a fővonalra." };
-        if (Object.values(s.lineBranches || {}).some((b) => b.route?.id === id || b.edge === id)) return { ok: false, msg: "Előbb oldd a kiágazási vágányutat / engedélyt." };
+        if (Object.values(s.lineBranches || {}).some((b) => b.route?.id === id || this.holds(b, id))) return { ok: false, msg: "Előbb oldd a kiágazási vágányutat / engedélyt." };
         delete t.lineBranch;
         t.branchPermission = false;
         t.dir = dir;
@@ -351,8 +416,9 @@
           if (!def) continue;
           const b = this.state(s, def.id),
             elapsed = s.time - (t.branchSince ?? s.time),
+            travel = this.travel(def),
             r = b.route?.id === t.id ? b.route : null;
-          if (t.phase === "branchLineIn" && elapsed >= TRAVEL) t.phase = "branchHold";
+          if (t.phase === "branchLineIn" && elapsed >= travel) t.phase = "branchHold";
           if (t.phase === "branchHold" && r?.clear) {
             t.phase = "branchEntering";
             t.branchSince = s.time;
@@ -362,7 +428,7 @@
             t.history.push({ station: def.station, arr: s.time });
             t.branchPermission = false;
             t.lineBranch = { id: null, direction: "out", from: def.id };
-            b.edge = null;
+            this.release(b, t.id);
             b.reserved = null;
             b.route = null;
             s.log(`${t.id}: beért ${STATIONS[def.station].name} állomásra (${def.name.replace(" felé", " felől")}), ${t.track}. vágány.`);
@@ -373,14 +439,13 @@
           } else if (t.phase === "branchLeaving" && elapsed >= THROAT) {
             t.phase = "branchLineOut";
             t.branchSince = s.time;
-            b.reserved = null;
             b.route = null;
-          } else if (t.phase === "branchLineOut" && elapsed >= TRAVEL) {
+          } else if (t.phase === "branchLineOut" && elapsed >= travel) {
             t.phase = "branchOutside";
             t.finished = true;
             t.finishedAt = s.time;
             t.branchPermission = false;
-            b.edge = null;
+            this.release(b, t.id);
             s.log(`${t.id}: kilépett a modellhatáron (${def.name}).`);
           }
         }
@@ -390,17 +455,31 @@
         if (!s.auto) return;
         for (const t of s.trains) {
           if (!t.lineBranch?.id || t.finished || playerOwns(s, t.at)) continue;
-          const b = this.state(s, t.lineBranch.id);
-          if (t.phase === "branchRequest" || (t.phase === "parked" && t.lineBranch.direction === "out")) this.grant(s, t.id);
-          if (t.branchPermission && b.edge === t.id && !b.route && ["branchLineIn", "branchHold", "branchReady"].includes(t.phase)) this.route(s, t.id);
-          if (b.route?.id === t.id && !b.route.clear && !b.route.releaseAt && ["branchLineIn", "branchHold", "branchReady"].includes(t.phase)) this.clear(s, t.lineBranch.id);
+          const b = this.state(s, t.lineBranch.id), out = t.lineBranch.direction === "out";
+          if (t.phase === "branchRequest" || (t.phase === "parked" && out && s.time >= (t.dep ?? 0) - 0.5)) this.grant(s, t.id);
+          // bejáratnál a vágányút csak a modelljelző előtt, kijáratnál indulásra készen
+          if (t.branchPermission && this.holds(b, t.id) && !b.route && ["branchHold", "branchReady"].includes(t.phase)) this.route(s, t.id);
+          if (b.route?.id === t.id && !b.route.clear && !b.route.releaseAt && ["branchHold", "branchReady"].includes(t.phase)) this.clear(s, t.lineBranch.id);
         }
       },
     });
 
     P.throatLocked = function (station, side) {
-      const lb = Object.values(this.lineBranches || {}).some((b) => b.station === station && b.route?.side === side);
-      return lb || prevThroat.call(this, station, side);
+      const lb = Object.values(this.lineBranches || {}).some((b) => b.station === station && b.route?.side === side && !b.route.own);
+      if (lb) return true;
+      const ctx = this._routeCtx;
+      if (ctx && ctx.station === station && ctx.side === side) {
+        const mine = sideUse(station, side, ctx.track, ctx.kind);
+        if (mine) {
+          if (station === 37 && this.godisaBranch?.route) return true;
+          return Object.values(this.routes).some((r) => {
+            if (r.at !== station || r.side !== side) return false;
+            const other = sideUse(station, side, r.track, r.kind);
+            return !other || mine.cross || other.cross || mine.lane === other.lane;
+          });
+        }
+      }
+      return prevThroat.call(this, station, side);
     };
     P.next = function (t) {
       if (t?.lineBranch) return null;
@@ -419,43 +498,70 @@
 
 
     // ───────────────────────────────────────────────────────────────────
-    // 5) MENETRENDI VONATOK A KIÁGAZÁSOKON — globalThis.BRANCH_TIMETABLE (adatok/kiagazas-menetrend.csv → build.sh)
-    //    { id, number, branch, via: "from"|"to", dir, stops:[{station, arr, dep}] }  stops csak a fővonali rész;
-    //    "from": a vonat a kiágazás felől érkezik, stops[0] a csatlakozó állomás; "to": stops.at(-1) a csatlakozó állomás, onnan a kiágazáson távozik.
+    // 5) MENETRENDI VONATOK A KIÁGAZÁSOKON — globalThis.BRANCH_TIMETABLE (adatok/pdf → adatok/kiagazas_pdfbol.py → build.sh)
+    //    { id, number, from, to, dir, stops:[{station, arr, dep}], replaces? }  — stops: csak a modellezett állomások;
+    //    from: erről a kiágazásról érkezik az első megállóhoz; to: az utolsó megállótól ezen a kiágazáson távozik;
+    //    replaces: a fővonali menetrend ugyanilyen számú vonata helyett közlekedik (ne legyen kétszer).
     // ───────────────────────────────────────────────────────────────────
+    const TT = () => globalThis.BRANCH_TIMETABLE || [];
     const branchPlan = (svc, offset) => (svc.stops.length > 1 ? makeTimetablePlan(svc, offset) : [{ station: svc.stops[0].station, arr: svc.stops[0].arr + offset, dep: svc.stops[0].dep + offset, source: true }]);
+    const dayRange = (s) => { const out = []; for (let d = Math.floor(s.time / 1440) - 1; d <= Math.floor((s.time + 3) / 1440); d++) out.push(d); return out; };
+    const prevReal = P.realTraffic;
+    if (typeof prevReal === "function")
+      P.realTraffic = function () {
+        this.ttSpawned ||= {};
+        for (const svc of TT()) if (svc.replaces) for (const d of dayRange(this)) this.ttSpawned[d + ":" + svc.replaces] ||= "branch";
+        return prevReal.call(this);
+      };
     P.branchTraffic = function () {
-      const TT = globalThis.BRANCH_TIMETABLE || [];
-      if (!TT.length) return;
+      const list = TT();
       this.btSpawned ||= {};
-      for (let day = Math.floor(this.time / 1440) - 1; day <= Math.floor((this.time + 3) / 1440); day++)
-        for (const svc of TT) {
+      const start = this.serviceStart ?? 0;
+      for (const day of dayRange(this))
+        for (const svc of list) {
           const key = day + ":" + svc.id;
           if (this.btSpawned[key]) continue;
-          const def = LB.byId(svc.branch);
-          if (!def) { this.btSpawned[key] = "nobranch"; continue; }
-          const offset = day * 1440, plan = branchPlan(svc, offset), first = plan[0].dep, last = plan.at(-1).arr, lead = TRAVEL + THROAT + 2;
-          if (last < (this.serviceStart ?? 0) - lead) { this.btSpawned[key] = "past"; continue; }
-          const id = svc.number + (day === 0 ? "" : "/D" + day);
+          const fromDef = svc.from && LB.byId(svc.from), toDef = svc.to && LB.byId(svc.to);
+          if ((svc.from && !fromDef) || (svc.to && !toDef)) { this.btSpawned[key] = "nobranch"; continue; }
+          const offset = day * 1440, plan = branchPlan(svc, offset), id = svc.number + (day === 0 ? "" : "/D" + day);
+          if (plan.at(-1).dep < start) { this.btSpawned[key] = "past"; continue; }
           if (this.trains.some((t) => t.id === id)) { this.btSpawned[key] = true; continue; }
-          if (svc.via === "from") {
+          const base = { id, number: svc.number, delay: 0, finished: false, history: [], plan, menetrendi: true, kind: "passenger", maxSpeed: 120, endStation: plan.at(-1).station, sourceLines: svc.lines || [], branchService: true };
+          if (fromDef && plan[0].arr >= start) {
+            // a kiágazás felől érkezik
+            const lead = (fromDef.travel ?? TRAVEL) + THROAT + 1;
             if (plan[0].arr - lead > this.time) continue;
-            const track = STATIONS[def.station].tracks.find((tr) => !this.closed[`${def.station}:${tr}`] && !this.busy(def.station, tr, id));
+            const track = STATIONS[fromDef.station].tracks.find((tr) => !this.closed[`${fromDef.station}:${tr}`] && !this.busy(fromDef.station, tr, id));
             if (!track) continue;
-            this.trains.push({ id, number: svc.number, at: def.station, dir: svc.dir || (def.side === "L" ? 1 : -1), track, dep: plan[0].dep, phase: "branchRequest", delay: 0, finished: false, history: [], plan, menetrendi: true, kind: "passenger", maxSpeed: 120, endStation: plan.at(-1).station, lineBranch: { id: def.id, direction: "in" }, scheduledBranch: true, sourceLines: svc.lines || [] });
-            this.log(`${id}: menetrendi vonat ${def.name.replace(" felé", " felől")}, érkezés ${STATIONS[def.station].name} ${fmt(plan[0].arr)}.`);
+            this.trains.push({ ...base, at: fromDef.station, dir: svc.dir || (fromDef.side === "L" ? 1 : -1), track, dep: plan[0].dep, phase: "branchRequest", lineBranch: { id: fromDef.id, direction: "in" }, scheduledBranch: true, exitBranch: svc.to || null });
+          } else if (plan.length === 1) {
+            // a csatlakozó állomásról indul a kiágazásra
+            if (!toDef) { this.btSpawned[key] = "past"; continue; }
+            if (plan[0].dep - 3 > this.time) continue;
+            const track = this.free(toDef.station);
+            if (!track) continue;
+            this.trains.push({ ...base, at: toDef.station, dir: toDef.side === "L" ? -1 : 1, track, dep: Math.max(this.time, plan[0].dep), phase: "parked", history: [{ station: toDef.station, arr: this.time }], lineBranch: { id: toDef.id, direction: "out" } });
           } else {
+            // a fővonalon indul (vagy a szimuláció kezdetekor már úton van), a végén a kiágazásra megy
+            const first = plan[0].dep;
             if (first > this.time + 3) continue;
             let at = plan[0].station;
-            if (first < (this.serviceStart ?? 0)) { const past = plan.filter((x) => STATIONS[x.station].control && x.dep <= this.serviceStart); if (past.length) at = past.at(-1).station; }
+            if (first < start) { const past = plan.filter((x) => STATIONS[x.station].control && x.dep <= start); if (past.length) at = past.at(-1).station; }
             const track = this.free(at);
             if (!track) continue;
             const point = plan.find((x) => x.station === at);
-            this.trains.push({ id, number: svc.number, at, dir: svc.dir, track, dep: Math.max(this.time, point.dep), phase: "parked", delay: Math.max(0, this.time - point.dep), history: [], plan, finished: false, menetrendi: true, kind: "passenger", maxSpeed: 120, endStation: plan.at(-1).station, viaBranch: def.id, sourceLines: svc.lines || [] });
+            this.trains.push({ ...base, at, dir: svc.dir, track, dep: Math.max(this.time, point.dep), phase: "parked", delay: Math.max(0, this.time - point.dep), viaBranch: svc.to || null });
           }
           this.btSpawned[key] = true;
         }
-      // a csatlakozó állomásra ért "to" vonat átadása a kiágazásra
+      // meglévő hiba javítása: a szimuláció indulásakor már a végállomásán álló menetrendi vonat sosem fejezte be az útját,
+      // és örökre foglalta a vágányt (Érd felső, Kelenföld, Déli idővel betelt)
+      for (const t of this.trains)
+        if (t.menetrendi && !t.finished && !t.lineBranch && t.phase === "parked" && t.at === t.endStation && this.time >= (t.dep ?? 0) && !this.permissions[t.id] && this.next(t) == null) {
+          t.finished = true;
+          t.finishedAt = this.time;
+        }
+      // a csatlakozó állomásra ért vonat átadása a kiágazásra
       for (const t of this.trains) {
         if (!t.viaBranch || t.lineBranch || !t.finished || t.phase !== "parked") continue;
         const def = LB.byId(t.viaBranch);
@@ -463,19 +569,23 @@
         t.finished = false; delete t.finishedAt;
         t.lineBranch = { id: def.id, direction: "out" };
         t.branchPermission = false;
+        t.dep = Math.max(this.time, t.plan.at(-1).dep);
         delete t.viaBranch;
-        this.log(`${t.id}: tovább a kiágazáson (${def.name}).`);
       }
     };
-    // beérkezett menetrendi kiágazási vonat: folytatás a fővonalon a terv szerint, vagy végállomás
+    // beérkezett menetrendi kiágazási vonat: folytatás a fővonalon, továbbhaladás másik kiágazásra, vagy végállomás
     const prevAdvance = LB.advance.bind(LB);
     LB.advance = function (s) {
       prevAdvance(s);
       for (const t of s.trains) {
         if (!t.scheduledBranch || t.phase !== "parked" || !t.lineBranch || t.lineBranch.id !== null) continue;
         delete t.scheduledBranch;
-        if (t.plan.length > 1) { delete t.lineBranch; t.branchPermission = false; t.dep = Math.max(s.time, t.plan[0].dep); t.history = [{ station: t.at, arr: s.time }]; t.delay = Math.max(0, s.time - t.plan[0].arr); }
-        else { delete t.lineBranch; t.finished = true; t.finishedAt = s.time; t.delay = Math.max(0, s.time - t.plan[0].arr); s.log(`${t.id}: végállomás ${STATIONS[t.at].name}.`); }
+        t.delay = Math.max(0, s.time - t.plan[0].arr);
+        t.branchPermission = false;
+        if (t.plan.length > 1) { delete t.lineBranch; t.dep = Math.max(s.time, t.plan[0].dep); t.history = [{ station: t.at, arr: s.time }]; if (t.exitBranch) t.viaBranch = t.exitBranch; }
+        else if (t.exitBranch) { t.lineBranch = { id: t.exitBranch, direction: "out" }; t.dep = Math.max(s.time + 0.5, t.plan[0].dep); }
+        else { delete t.lineBranch; t.finished = true; t.finishedAt = s.time; }
+        delete t.exitBranch;
       }
     };
     const prevTick2 = P.tick;
@@ -616,7 +726,7 @@
           st = branchStub(s, def, k, sides),
           b = LB.state(sim, def.id),
           d = "M" + st.pts.map((p) => p.join(",")).join("L");
-        html += drawPath(d, b.edge ? "#ff6d7c" : "#d9a358", 6);
+        html += drawPath(d, LB.occupants(b).length ? "#ff6d7c" : "#d9a358", 6);
         if (b.route)
           html += drawPath(
             "M" + [st.pts[1], st.pts[2], [def.side === "L" ? 215 : 985, (naturalLane(sides[def.side], g.y(b.route.track), g.mid) || { y: g.mid }).y], [def.side === "L" ? 350 : 850, g.y(b.route.track)], [600, g.y(b.route.track)]].map((p) => p.join(",")).join("L"),
@@ -624,7 +734,7 @@
             8,
             'opacity=".85"',
           );
-        html += `<circle cx="${st.sig[0]}" cy="${st.sig[1] + (def.vert === "down" ? 10 : -10)}" r="5" fill="${b.route?.clear ? "#65ff7e" : "#ff535e"}"/><text x="${st.label[0]}" y="${st.label[1]}" text-anchor="${st.anchor}" fill="#17321e" font-size="11">${esc(def.name)} · modellhatár${b.edge ? " · " + esc(b.edge) : ""}</text>`;
+        html += `<circle cx="${st.sig[0]}" cy="${st.sig[1] + (def.vert === "down" ? 10 : -10)}" r="5" fill="${b.route?.clear ? "#65ff7e" : "#ff535e"}"/><text x="${st.label[0]}" y="${st.label[1]}" text-anchor="${st.anchor}" fill="#17321e" font-size="11">${esc(def.name)} · modellhatár${LB.occupants(b).length ? " · " + esc(LB.occupants(b).join(", ")) : ""}</text>`;
         // menetek a csonkon
         for (const t of sim.trains) {
           if (!t.lineBranch || t.finished || t.lineBranch.id !== def.id) continue;
@@ -632,11 +742,11 @@
           let pos = null;
           const stub = [st.pts[0], st.pts[1]],
             throat = [st.pts[1], st.pts[2], [def.side === "L" ? 215 : 985, (naturalLane(sides[def.side], g.y(t.track), g.mid) || { y: g.mid }).y], [def.side === "L" ? 350 : 850, g.y(t.track)], [600, g.y(t.track)]];
-          if (t.phase === "branchLineIn") pos = sample(stub, Math.min(1, el / TRAVEL) * length(stub));
+          if (t.phase === "branchLineIn") pos = sample(stub, Math.min(1, el / LB.travel(def)) * length(stub));
           else if (t.phase === "branchHold") pos = sample(stub, length(stub));
           else if (t.phase === "branchEntering") pos = sample(throat, Math.min(1, el / THROAT) * length(throat));
           else if (t.phase === "branchLeaving") pos = sample([...throat].reverse(), Math.min(1, el / THROAT) * length(throat));
-          else if (t.phase === "branchLineOut") pos = sample([...stub].reverse(), Math.min(1, el / TRAVEL) * length(stub));
+          else if (t.phase === "branchLineOut") pos = sample([...stub].reverse(), Math.min(1, el / LB.travel(def)) * length(stub));
           if (pos) html += branchTrainBox(t, pos.x, pos.y);
         }
       }
@@ -726,7 +836,7 @@
       let html = `<h3>${esc(STATIONS[s].name)} · kiágazások (modellhatárig egy állomásköz)</h3><p class="small">${owned ? "Ezt az állomást te kezeled: a kiágazási engedély, vágányút és jelző a tiéd." : "Az állomás nincs a kézi területben: a kiágazásokat a gép kezeli."} A kiágazás állomásvége (Budapest/Pécs felőli) játékparaméter, nem ellenőrzött ÁVU-adat. A menetidő ${TRAVEL} perc, a be-/kijárat ${THROAT} perc.</p>`;
       for (const def of branches) {
         const b = LB.state(sim, def.id);
-        html += `<div class="lb"><b>${esc(def.name)}</b> · ${def.side === "L" ? "Budapest felőli" : "Pécs felőli"} állomásvég · szakasz: ${b.edge ? '<span class="red">foglalt/lefoglalt: ' + esc(b.edge) + "</span>" : '<span class="green">szabad</span>'} · vágányút: ${b.route ? esc(b.route.id) + " · " + b.route.track + ". vg · " + (b.route.releaseAt ? "oldás folyamatban" : b.route.clear ? '<span class="green">Szabad</span>' : "Megállj") : "nincs"}<div><button onclick="lbAct('in','${def.id}')">Kézi tehermenet ${esc(def.name.replace(" felé", " felől"))}</button><button onclick="lbAct('clear','${def.id}')">Jelző Szabad</button><button onclick="lbAct('stop','${def.id}')">Megállj!</button><button onclick="lbAct('cancel','${def.id}')">Vágányút törlése / oldás</button></div><div class="small">A bejövő menet a Fogadóvágány-választóban kijelölt vágányra érkezik (alapvágány: első szabad).</div></div>`;
+        html += `<div class="lb"><b>${esc(def.name)}</b> · ${def.side === "L" ? "Budapest felőli" : "Pécs felőli"} állomásvég · szakasz: ${LB.occupants(b).length ? '<span class="red">foglalt/lefoglalt: ' + esc(LB.occupants(b).join(", ")) + "</span>" : '<span class="green">szabad</span>'} · vágányút: ${b.route ? esc(b.route.id) + " · " + b.route.track + ". vg · " + (b.route.releaseAt ? "oldás folyamatban" : b.route.clear ? '<span class="green">Szabad</span>' : "Megállj") : "nincs"}<div><button onclick="lbAct('in','${def.id}')">Kézi tehermenet ${esc(def.name.replace(" felé", " felől"))}</button><button onclick="lbAct('clear','${def.id}')">Jelző Szabad</button><button onclick="lbAct('stop','${def.id}')">Megállj!</button><button onclick="lbAct('cancel','${def.id}')">Vágányút törlése / oldás</button></div><div class="small">A bejövő menet a Fogadóvágány-választóban kijelölt vágányra érkezik (alapvágány: első szabad).</div></div>`;
       }
       const trains = LB.trainsAt(sim, s);
       const rows = trains
@@ -806,7 +916,7 @@
         g.setAttribute("data-linebranch", def.id);
         const tx = Math.min(x1, x2),
           w = Math.abs(x2 - x1);
-        g.innerHTML = `<path d="M${x0} 400L${x1} ${yb}H${x2}" stroke="${b.edge ? "#ff747e" : "#e5b45f"}" stroke-width="4" fill="none"/><circle cx="${x1}" cy="${yb + (down ? 11 : -11)}" r="4" fill="${b.route?.clear ? "#66ee95" : "#ff6c77"}"/><rect x="${tx}" y="${down ? yb + 18 : yb - 48}" width="${w}" height="30" rx="3" fill="#213f55" stroke="#e5b45f"/><text x="${tx + w / 2}" y="${down ? yb + 30 : yb - 36}" text-anchor="middle" fill="white" font-size="10">${esc(def.name)} · modellhatár</text><text x="${tx + w / 2}" y="${down ? yb + 42 : yb - 24}" text-anchor="middle" fill="#ffd085" font-size="9">${b.edge ? esc(b.edge) : "szabad"}${b.route ? " · vágányút " + (b.route.clear ? "Szabad" : "Megállj") : ""}</text>`;
+        g.innerHTML = `<path d="M${x0} 400L${x1} ${yb}H${x2}" stroke="${LB.occupants(b).length ? "#ff747e" : "#e5b45f"}" stroke-width="4" fill="none"/><circle cx="${x1}" cy="${yb + (down ? 11 : -11)}" r="4" fill="${b.route?.clear ? "#66ee95" : "#ff6c77"}"/><rect x="${tx}" y="${down ? yb + 18 : yb - 48}" width="${w}" height="30" rx="3" fill="#213f55" stroke="#e5b45f"/><text x="${tx + w / 2}" y="${down ? yb + 30 : yb - 36}" text-anchor="middle" fill="white" font-size="10">${esc(def.name)} · modellhatár</text><text x="${tx + w / 2}" y="${down ? yb + 42 : yb - 24}" text-anchor="middle" fill="#ffd085" font-size="9">${LB.occupants(b).length ? esc(LB.occupants(b).join(", ")) : "szabad"}${b.route ? " · vágányút " + (b.route.clear ? "Szabad" : "Megállj") : ""}</text>`;
         g.style.cursor = "pointer";
         g.onpointerdown = (ev) => {
           ev.stopPropagation();
