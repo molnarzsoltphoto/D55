@@ -8579,40 +8579,82 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
         ? { pts: [[15, yb], [68, yb], [130, outer]], label: [20, ly], anchor: "start", sig: [68, yb] }
         : { pts: [[1185, yb], [1132, yb], [1070, outer]], label: [1180, ly], anchor: "end", sig: [1132, yb] };
     }
-    function branchTrainBox(t, x, y) {
-      return `<g onclick="showTrain('${t.id}')" style="cursor:pointer"><rect x="${x - 27}" y="${y - 9}" width="54" height="18" rx="3" fill="#ffc36c" stroke="#603925" stroke-width="1.5"/><text x="${x}" y="${y + 4}" text-anchor="middle" fill="#2b1a05" font-size="10" font-weight="700">${esc(t.id)}</text></g>`;
-    }
 
     svgSignal = function (s, name, x, y, dir) {
       const r = sim.getRoute(s, name), clear = !!r?.clear, tx = dir === 1 ? x + 40 : x - 40;
-      return `<g class="point" tabindex="0" role="button" aria-label="${name} jelző" onclick="point('${name}')" onkeydown="if(event.key==='Enter')point('${name}')"><path d="M${x} ${y}v-17h${dir === 1 ? 18 : -18}" stroke="#192e20" stroke-width="3" fill="none"/><rect x="${dir === 1 ? x + 10 : x - 35}" y="${y - 25}" width="25" height="15" rx="7" fill="#17291c"/><circle cx="${dir === 1 ? x + 22 : x - 23}" cy="${y - 18}" r="5" fill="${clear ? "#65ff7e" : "#ff535e"}"/><text x="${tx}" y="${y - 14}" text-anchor="${dir === 1 ? "start" : "end"}" fill="#19321f" font-size="11">${name}</text></g>`;
+      return `<g class="point" tabindex="0" role="button" aria-label="${name} jelző" onclick="point('${name}')" onkeydown="if(event.key==='Enter')point('${name}')"><path d="M${x} ${y}v-17h${dir === 1 ? 18 : -18}" stroke="#111" stroke-width="3" fill="none"/><rect x="${dir === 1 ? x + 10 : x - 35}" y="${y - 25}" width="25" height="15" rx="7" fill="#111"/><circle cx="${dir === 1 ? x + 22 : x - 23}" cy="${y - 18}" r="5" fill="${clear ? "#35e36a" : "#ff3636"}"/><text x="${tx}" y="${y - 14}" text-anchor="${dir === 1 ? "start" : "end"}" fill="#19321f" font-size="11" stroke="#bdd7ae" stroke-width="4" paint-order="stroke">${name}</text></g>`;
     };
+
+    // ---- D55 pultkép: világoszöld mozaiklapok, fekete vágánysáv, benne világító szakaszok (sárga = lezárt vágányút, vörös = foglalt),
+    // a gombok a vágányban ülnek, alul a csoportgombok, felül középen a számlálók. A kezelés marad kétütemű (első / második lezárás).
+    const D55 = { off: "#3d3f37", lit: "#ffd62e", occ: "#ff3636", pos: "#efe9c6", closed: "#ff9d2e" };
+    const band = (d) => `<path d="${d}" fill="none" stroke="#101010" stroke-width="12" stroke-linejoin="round"/>`;
+    const lamps = (d, c, w = 5, extra = "") => `<path d="${d}" fill="none" stroke="${c}" stroke-width="${w}" stroke-dasharray="15 6" stroke-linejoin="round" ${extra}/>`;
+    const tag = (t, x, y) =>
+      `<g onclick="showTrain('${t.id}')" style="cursor:pointer"><rect x="${x - 25}" y="${y - 9}" width="50" height="17" rx="2" fill="#f7f5ea" stroke="#111" stroke-width="1.5"/><text x="${x}" y="${y + 4}" text-anchor="middle" fill="#111" font-size="11" font-weight="700">${esc(t.id)}</text></g>`;
+    // a vonat a pulton nem „kocsi”, hanem a vágánysávban haladó vörös foglaltság + vonatszámtábla
+    function litTrain(t, pts, head, len = 78) {
+      const q = [];
+      for (let d = head - len; d <= head; d += 6) {
+        const p = sample(pts, d);
+        q.push(p.x.toFixed(1) + "," + p.y.toFixed(1));
+      }
+      const m = sample(pts, head - len / 2);
+      return `<path d="M${q.join("L")}" fill="none" stroke="${D55.occ}" stroke-width="7" stroke-dasharray="15 6" stroke-linejoin="round"/>` + tag(t, m.x, m.y - 21);
+    }
+    function branchTrainBox(t, x, y) {
+      return `<circle cx="${x}" cy="${y}" r="5" fill="${D55.occ}" stroke="#111"/>` + tag(t, x, y - 19);
+    }
+    for (const [fn, key] of [["cancelRoute", "oldas"], ["stopSignal", "megallj"]]) {
+      const prev = P[fn];
+      P[fn] = function (station, signal) {
+        const r = prev.apply(this, arguments);
+        if (r?.ok && playerOwns(this, station)) {
+          this.d55Counters ||= { oldas: 0, megallj: 0 };
+          this.d55Counters[key]++;
+        }
+        return r;
+      };
+    }
+    const GROUP_BUTTONS = [["route", "Vágányút"], ["clear", "Jelző szabad"], ["stop", "Megállj"], ["cancel", "Törlés / oldás"], ["switch", "Váltóállítás"]];
 
     drawStation = function () {
       const s = sim.selected,
         g = geom(s),
         sides = lineSides(s),
-        branches = LB.at(s);
-      let html = `<svg viewBox="0 0 1200 ${g.h}" role="img" aria-label="D55-jellegű kezelhető játékpult"><defs><pattern id="tiles" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" stroke="#26352255" stroke-width="1" fill="none"/></pattern></defs><rect width="1200" height="${g.h}" fill="url(#tiles)"/><text x="23" y="27" fill="#132a19" font-size="19">${esc(STATIONS[s].name.toUpperCase())} · D55-JELLEGŰ JÁTÉKPULT</text><text x="23" y="49" fill="#1a3221" font-size="12">Kezelhető gombok · első és második lezárás · sematikus vágányrajz, nem hiteles ÁVU-rajz${sides.L.double || sides.R.double ? " · kétvágányú vonali csatlakozás" : ""}</text>`;
+        branches = LB.at(s),
+        H = g.h + 64,
+        blink = Math.floor(Date.now() / 450) % 2 ? 1 : 0.25,
+        cnt = sim.d55Counters || { oldas: 0, megallj: 0 };
+      let html = `<svg viewBox="0 0 1200 ${H}" role="img" aria-label="D55-jellegű kezelhető játékpult"><defs><pattern id="tiles" width="34" height="34" patternUnits="userSpaceOnUse"><rect width="34" height="34" fill="#bdd7ae"/><path d="M0 33.5H34M33.5 0V34" stroke="#8eac82" stroke-width="1" fill="none"/><path d="M0 .5H34M.5 0V34" stroke="#d6ead0" stroke-width="1" fill="none"/></pattern></defs><rect width="1200" height="${H}" fill="url(#tiles)"/><text x="23" y="27" fill="#132a19" font-size="19">${esc(STATIONS[s].name.toUpperCase())} · D55-JELLEGŰ JÁTÉKPULT</text><text x="23" y="49" fill="#1a3221" font-size="12">Kétütemű kezelés · első és második lezárás · sematikus vágányrajz</text>`;
+      // számlálók (a valódi pulton a rendkívüli kezeléseket számláló regisztrálja)
+      [["Oldás", cnt.oldas], ["Megállj", cnt.megallj]].forEach(([label, n], i) => {
+        const x = 530 + i * 76;
+        html += `<rect x="${x}" y="8" width="64" height="38" rx="2" fill="#f7f5ea" stroke="#6d7d66"/><text x="${x + 32}" y="20" text-anchor="middle" fill="#333" font-size="8">${label}</text><rect x="${x + 9}" y="24" width="46" height="17" fill="#111"/><text x="${x + 32}" y="37" text-anchor="middle" fill="#f4f4f4" font-size="12" font-family="monospace">${String(n).padStart(4, "0")}</text>`;
+      });
+      let bands = "", lights = "";
+      const trk = (d, c) => {
+        bands += band(d);
+        lights += lamps(d, c || D55.off);
+      };
       // vonali csatlakozások
       for (const side of ["L", "R"]) {
         const sd = sides[side];
         if (!sd.double) {
-          html += drawPath(side === "L" ? `M15 ${g.mid}H215` : `M985 ${g.mid}H1185`, "#bac7b2", 6);
+          trk(side === "L" ? `M15 ${g.mid}H215` : `M985 ${g.mid}H1185`);
           continue;
         }
         const sx = side === "L" ? 215 : 985, ex = side === "L" ? 15 : 1185;
         for (const ln of sd.lanes) {
           const occupied = sd.sec.lanes[ln.lane].blocks.some((b) => b.owner);
-          html += drawPath(`M${ex} ${ln.y}H${sx}`, occupied ? "#d98c92" : "#bac7b2", 6);
+          trk(`M${ex} ${ln.y}H${sx}`, occupied ? D55.occ : null);
           const lx = side === "L" ? 40 : 1160;
-          html += `<text x="${lx}" y="${ln.y - 9}" text-anchor="middle" fill="#17321e" font-size="10">${ln.lane + 1}. vg ${ln.direction === 1 ? "→" : "←"}</text>`;
+          html += `<text x="${lx}" y="${ln.y - 11}" text-anchor="middle" fill="#17321e" font-size="10">${ln.lane + 1}. vg ${ln.direction === 1 ? "→" : "←"}</text>`;
         }
         // átmenő kitérő (X) a két vonali vágány közt
         const [y0, y1] = sd.lanes.map((l) => l.y), [xa, xb] = XO[side];
-        html += drawPath(`M${xa} ${y0}L${xb} ${y1}M${xa} ${y1}L${xb} ${y0}`, "#8ea38a", 4);
-        // váltópontok
-        for (const ln of sd.lanes) html += `<circle cx="${sx}" cy="${ln.y}" r="3.5" fill="#2f4a33"/>`;
+        trk(`M${xa} ${y0}L${xb} ${y1}`);
+        trk(`M${xa} ${y1}L${xb} ${y0}`);
       }
       g.tracks.forEach((tr) => {
         const y = g.y(tr),
@@ -8623,37 +8665,39 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
           queue = sim.queueAhead(s, tr, "__nobody__").length;
         const nL = naturalLane(sides.L, y, g.mid), nR = naturalLane(sides.R, y, g.mid),
           yL = nL ? nL.y : g.mid, yR = nR ? nR.y : g.mid;
-        html += drawPath(`M215 ${yL}L350 ${y}H850L985 ${yR}`, "#43573f", 6);
-        if (selectedL) html += drawPath(`M215 ${yL}L350 ${y}H440`, "#d6dfc6", 4);
-        if (selectedR) html += drawPath(`M760 ${y}H850L985 ${yR}`, "#d6dfc6", 4);
-        html += drawPath(`M350 ${y}H850`, closed ? "#d9a358" : occ ? "#ff5b63" : "#bac7b2", 6);
-        html += `<text x="600" y="${y + 26}" text-anchor="middle" fill="#17321e" font-size="12">${tr}. vágány${closed ? " · LEZÁRVA" : ""}${queue > 1 ? ` · sorban: ${queue}` : ""}</text>`;
-        if (g.tracks.indexOf(tr) < 5) html += `<rect x="462" y="${y + 33}" width="276" height="7" fill="#c7cead" rx="2"/>`;
+        trk(`M215 ${yL}L350 ${y}`);
+        trk(`M850 ${y}L985 ${yR}`);
+        trk(`M350 ${y}H850`, closed ? D55.closed : occ ? D55.occ : null);
+        // váltóállás-visszajelentés: rövid világító szakasz a váltónál
+        if (selectedL) lights += lamps(`M215 ${yL}L${215 + 48} ${yL + (y - yL) * (48 / 135)}`, D55.pos);
+        if (selectedR) lights += lamps(`M985 ${yR}L${985 - 48} ${yR + (y - yR) * (48 / 135)}`, D55.pos);
+        html += `<text x="600" y="${y + 24}" text-anchor="middle" fill="#17321e" font-size="12">${tr}. vágány${closed ? " · LEZÁRVA" : ""}${queue > 1 ? ` · sorban: ${queue}` : ""}</text>`;
       });
       Object.values(sim.routes)
         .filter((r) => r.at === s)
         .forEach((r) => {
           const pts = routePoints(s, r.side, r.track, r.kind, routeLane(r)),
             d = "M" + pts.map((p) => p.join(",")).join("L");
-          html += drawPath(d, r.releaseAt ? "#ffd16f" : "#f2f4df", 8, 'opacity=".85"');
+          lights += lamps(d, D55.lit, 6, r.releaseAt ? `opacity="${blink}"` : "");
         });
       // kiágazási csonkok
       const bySide = {};
+      let stubTrains = "";
       for (const def of branches) {
         const key = def.side + (def.vert === "down" ? "d" : "u"),
           k = (bySide[key] = (bySide[key] || 0) + 1) - 1,
           st = branchStub(s, def, k, sides),
           b = LB.state(sim, def.id),
           d = "M" + st.pts.map((p) => p.join(",")).join("L");
-        html += drawPath(d, LB.occupants(b).length ? "#ff6d7c" : "#d9a358", 6);
+        trk(d, LB.occupants(b).length ? D55.occ : null);
         if (b.route)
-          html += drawPath(
+          lights += lamps(
             "M" + [st.pts[1], st.pts[2], [def.side === "L" ? 215 : 985, (naturalLane(sides[def.side], g.y(b.route.track), g.mid) || { y: g.mid }).y], [def.side === "L" ? 350 : 850, g.y(b.route.track)], [600, g.y(b.route.track)]].map((p) => p.join(",")).join("L"),
-            b.route.releaseAt ? "#ffd16f" : b.route.clear ? "#9df0b4" : "#f2f4df",
-            8,
-            'opacity=".85"',
+            D55.lit,
+            6,
+            b.route.releaseAt ? `opacity="${blink}"` : "",
           );
-        html += `<circle cx="${st.sig[0]}" cy="${st.sig[1] + (def.vert === "down" ? 10 : -10)}" r="5" fill="${b.route?.clear ? "#65ff7e" : "#ff535e"}"/><text x="${st.label[0]}" y="${st.label[1]}" text-anchor="${st.anchor}" fill="#17321e" font-size="11">${esc(def.name)} · modellhatár${LB.occupants(b).length ? " · " + esc(LB.occupants(b).join(", ")) : ""}</text>`;
+        stubTrains += `<circle cx="${st.sig[0]}" cy="${st.sig[1] + (def.vert === "down" ? 13 : -13)}" r="5" fill="${b.route?.clear ? "#35e36a" : "#ff3636"}" stroke="#111" stroke-width="2"/><text x="${st.label[0]}" y="${st.label[1]}" text-anchor="${st.anchor}" fill="#17321e" font-size="11">${esc(def.name)} · modellhatár${LB.occupants(b).length ? " · " + esc(LB.occupants(b).join(", ")) : ""}</text>`;
         // menetek a csonkon
         for (const t of sim.trains) {
           if (!t.lineBranch || t.finished || t.lineBranch.id !== def.id) continue;
@@ -8666,18 +8710,19 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
           else if (t.phase === "branchEntering") pos = sample(throat, Math.min(1, el / THROAT) * length(throat));
           else if (t.phase === "branchLeaving") pos = sample([...throat].reverse(), Math.min(1, el / THROAT) * length(throat));
           else if (t.phase === "branchLineOut") pos = sample([...stub].reverse(), Math.min(1, el / LB.travel(def)) * length(stub));
-          if (pos) html += branchTrainBox(t, pos.x, pos.y);
+          if (pos) stubTrains += branchTrainBox(t, pos.x, pos.y);
         }
       }
+      html += bands + lights + stubTrains;
       g.tracks.forEach((tr) => {
         const y = g.y(tr);
-        html += svgSignal(s, "KL-" + tr, 380, y, -1) + svgSignal(s, "KR-" + tr, 820, y, 1) + svgButton("KL-" + tr, 410, y + 17) + svgButton("KR-" + tr, 790, y + 17);
+        html += svgSignal(s, "KL-" + tr, 380, y, -1) + svgSignal(s, "KR-" + tr, 820, y, 1) + svgButton("KL-" + tr, 412, y) + svgButton("KR-" + tr, 788, y);
       });
       html +=
         svgSignal(s, "A", 145, sides.L.in, 1) +
         svgSignal(s, "B", 1055, sides.R.in, -1) +
-        svgButton("A", 112, g.mid + 52) +
-        svgButton("B", 1088, g.mid + 52) +
+        svgButton("A", 100, sides.L.in) +
+        svgButton("B", 1100, sides.R.in) +
         svgButton("VL", 52, g.mid + 105, "exit") +
         svgButton("VR", 1148, g.mid + 105, "exit");
       html += svgButton("W-L", 265, 75, "switch") + svgButton("W-R", 935, 75, "switch");
@@ -8686,10 +8731,10 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
         if (t.lineBranch && t.phase !== "parked") return; // a kiágazási menetek a csonkon mozognak
         if (t.phase === "parked" && t.at === s) {
           const y = g.y(t.track);
-          html += consist(t, t.dir === 1 ? [[520, y], [680, y]] : [[680, y], [520, y]], 115);
+          html += tag(t, 600, y - 21);
         } else if (t.phase === "leaving" && t.at === s) {
           const pts = routePoints(s, t.dir === 1 ? "R" : "L", t.track, "out", p?.lane);
-          html += consist(t, pts, 35 + t.progress * (length(pts) + 55));
+          html += litTrain(t, pts, 35 + t.progress * (length(pts) + 55));
         } else if (p && p.to === s && ["approach", "hold", "entering"].includes(t.phase)) {
           let pts, head;
           const side = t.dir === 1 ? "L" : "R",
@@ -8702,19 +8747,21 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
             pts = routePoints(s, side, p.track, "in", p.lane);
             head = t.phase === "hold" ? 35 : 35 + t.progress * length(pts);
           }
-          html += consist(t, pts, head);
-          if (t.phase === "entering") {
-            const a = sample(pts, head - 65),
-              b = sample(pts, head);
-            html += drawPath(`M${a.x} ${a.y}L${b.x} ${b.y}`, "#ff6262", 3);
-          }
+          html += litTrain(t, pts, head);
         }
       });
       const names = (side) => {
         const nb = side === "L" ? CONTROL_IDS[CONTROL_IDS.indexOf(s) - 1] : CONTROL_IDS[CONTROL_IDS.indexOf(s) + 1];
         return nb === undefined ? (side === "L" ? "Vonalvég" : "Vonalvég") : STATIONS[nb].name + " felől";
       };
-      html += `<text x="20" y="${g.h - 18}" fill="#15321e" font-size="12">${esc(names("L"))} · A / VL${sides.L.double ? " · kétvágányú" : ""}</text><text x="1180" y="${g.h - 18}" text-anchor="end" fill="#15321e" font-size="12">B / VR · ${esc(names("R"))}${sides.R.double ? " · kétvágányú" : ""}</text></svg>`;
+      html += `<text x="20" y="${g.h - 18}" fill="#15321e" font-size="12">${esc(names("L"))} · A / VL${sides.L.double ? " · kétvágányú" : ""}</text><text x="1180" y="${g.h - 18}" text-anchor="end" fill="#15321e" font-size="12">B / VR · ${esc(names("R"))}${sides.R.double ? " · kétvágányú" : ""}</text>`;
+      // csoportgombok az alsó sorban (a felső eszköztár gombjaival egyenértékűek)
+      html += `<rect x="250" y="${g.h + 4}" width="700" height="54" rx="3" fill="#a9c69b" stroke="#7d9a72"/>`;
+      GROUP_BUTTONS.forEach(([m, label], i) => {
+        const x = 320 + i * 140, y = g.h + 24, on = mode === m;
+        html += `<g class="point" tabindex="0" role="button" aria-label="${label}" onclick="setMode('${m}')" onkeydown="if(event.key==='Enter')setMode('${m}')"><circle cx="${x}" cy="${y}" r="12" fill="#1c1c1c" stroke="${on ? "#ffd62e" : "#5d6f57"}" stroke-width="${on ? 4 : 2}"/><circle cx="${x}" cy="${y}" r="7" fill="${m === "stop" ? "#c8322f" : m === "cancel" ? "#e0a12a" : "#e9e6d8"}"/><text x="${x}" y="${y + 27}" text-anchor="middle" fill="#132a19" font-size="11" font-weight="${on ? 700 : 400}">${label}</text></g>`;
+      });
+      html += "</svg>";
       $("board").innerHTML = html;
     };
 
