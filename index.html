@@ -8362,20 +8362,32 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
       const p = permissionsOf(sim, r.train).find((x) => (r.kind === "in" ? x.to === r.at : x.from === r.at));
       return p?.lane;
     }
+    // Kétvágányú oldalon: mindkét vonali vágány a saját váltóján (x=215 / 985) csatlakozik az állomás saját térfelén
+    // lévő vágányokhoz; a két vonali vágány közt X alakú átmenő kitérő (x 178–212 / 988–1022), így bármelyikről bármelyik vágány elérhető.
+    const XO = { L: [178, 212], R: [1022, 988] }; // átmenő kitérő két vége (vonal felől → állomás felé)
+    function naturalLane(sd, y, m) {
+      if (!sd.double) return null;
+      const upper = sd.lanes.reduce((a, b) => (a.y < b.y ? a : b)), lower = sd.lanes.reduce((a, b) => (a.y > b.y ? a : b));
+      return y <= m ? upper : lower;
+    }
     routePoints = function (s, side, track, kind, lane) {
       const g = geom(s),
         y = g.y(track),
         m = g.mid,
-        sd = lineSides(s)[side];
-      let ty = m;
-      if (sd.double) ty = lane != null && sd.lanes[lane] ? sd.lanes[lane].y : kind === "in" ? sd.in : sd.out;
+        sd = lineSides(s)[side],
+        sx = side === "L" ? 215 : 985,
+        tx = side === "L" ? 350 : 850,
+        ex = side === "L" ? 90 : 1110;
       let pts;
-      if (sd.double)
-        pts = side === "L" ? [[90, ty], [175, ty], [215, m], [350, y], [600, y]] : [[1110, ty], [1025, ty], [985, m], [850, y], [600, y]];
-      else pts = side === "L" ? [[90, m], [215, m], [350, y], [600, y]] : [[1110, m], [985, m], [850, y], [600, y]];
+      if (sd.double) {
+        const ln = lane != null && sd.lanes[lane] ? sd.lanes[lane] : sd.lanes.find((l) => l.y === (kind === "in" ? sd.in : sd.out)) || sd.lanes[0];
+        const nat = naturalLane(sd, y, m);
+        if (nat && nat.lane !== ln.lane) pts = [[ex, ln.y], [XO[side][0], ln.y], [XO[side][1], nat.y], [sx, nat.y], [tx, y], [600, y]];
+        else pts = [[ex, ln.y], [sx, ln.y], [tx, y], [600, y]];
+      } else pts = [[ex, m], [sx, m], [tx, y], [600, y]];
       if (kind === "out") {
         pts.reverse();
-        pts.push([side === "L" ? -80 : 1280, ty]);
+        pts.push([side === "L" ? -80 : 1280, pts[pts.length - 1][1]]);
       }
       return pts;
     };
@@ -8410,12 +8422,18 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
           html += drawPath(side === "L" ? `M15 ${g.mid}H215` : `M985 ${g.mid}H1185`, "#bac7b2", 6);
           continue;
         }
+        const sx = side === "L" ? 215 : 985, ex = side === "L" ? 15 : 1185;
         for (const ln of sd.lanes) {
           const occupied = sd.sec.lanes[ln.lane].blocks.some((b) => b.owner);
-          html += drawPath(side === "L" ? `M15 ${ln.y}H175L215 ${g.mid}` : `M985 ${g.mid}L1025 ${ln.y}H1185`, occupied ? "#d98c92" : "#bac7b2", 6);
+          html += drawPath(`M${ex} ${ln.y}H${sx}`, occupied ? "#d98c92" : "#bac7b2", 6);
           const lx = side === "L" ? 40 : 1160;
           html += `<text x="${lx}" y="${ln.y - 9}" text-anchor="middle" fill="#17321e" font-size="10">${ln.lane + 1}. vg ${ln.direction === 1 ? "→" : "←"}</text>`;
         }
+        // átmenő kitérő (X) a két vonali vágány közt
+        const [y0, y1] = sd.lanes.map((l) => l.y), [xa, xb] = XO[side];
+        html += drawPath(`M${xa} ${y0}L${xb} ${y1}M${xa} ${y1}L${xb} ${y0}`, "#8ea38a", 4);
+        // váltópontok
+        for (const ln of sd.lanes) html += `<circle cx="${sx}" cy="${ln.y}" r="3.5" fill="#2f4a33"/>`;
       }
       g.tracks.forEach((tr) => {
         const y = g.y(tr),
@@ -8424,9 +8442,11 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
           occ = sim.trains.some((t) => t.at === s && t.track === tr && t.phase === "parked"),
           closed = sim.closed[`${s}:${tr}`],
           queue = sim.queueAhead(s, tr, "__nobody__").length;
-        html += drawPath(`M215 ${g.mid}L350 ${y}H850L985 ${g.mid}`, "#43573f", 6);
-        if (selectedL) html += drawPath(`M215 ${g.mid}L350 ${y}H440`, "#d6dfc6", 4);
-        if (selectedR) html += drawPath(`M760 ${y}H850L985 ${g.mid}`, "#d6dfc6", 4);
+        const nL = naturalLane(sides.L, y, g.mid), nR = naturalLane(sides.R, y, g.mid),
+          yL = nL ? nL.y : g.mid, yR = nR ? nR.y : g.mid;
+        html += drawPath(`M215 ${yL}L350 ${y}H850L985 ${yR}`, "#43573f", 6);
+        if (selectedL) html += drawPath(`M215 ${yL}L350 ${y}H440`, "#d6dfc6", 4);
+        if (selectedR) html += drawPath(`M760 ${y}H850L985 ${yR}`, "#d6dfc6", 4);
         html += drawPath(`M350 ${y}H850`, closed ? "#d9a358" : occ ? "#ff5b63" : "#bac7b2", 6);
         html += `<text x="600" y="${y + 26}" text-anchor="middle" fill="#17321e" font-size="12">${tr}. vágány${closed ? " · LEZÁRVA" : ""}${queue > (occ ? 1 : 0) ? ` · sorban: ${queue - (occ ? 1 : 0)}` : ""}</text>`;
         if (g.tracks.indexOf(tr) < 5) html += `<rect x="462" y="${y + 33}" width="276" height="7" fill="#c7cead" rx="2"/>`;
@@ -8449,7 +8469,7 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
         html += drawPath(d, b.edge ? "#ff6d7c" : "#d9a358", 6);
         if (b.route)
           html += drawPath(
-            "M" + [st.pts[1], st.pts[2], [def.side === "L" ? 215 : 985, g.mid], [def.side === "L" ? 350 : 850, g.y(b.route.track)], [600, g.y(b.route.track)]].map((p) => p.join(",")).join("L"),
+            "M" + [st.pts[1], st.pts[2], [def.side === "L" ? 215 : 985, (naturalLane(sides[def.side], g.y(b.route.track), g.mid) || { y: g.mid }).y], [def.side === "L" ? 350 : 850, g.y(b.route.track)], [600, g.y(b.route.track)]].map((p) => p.join(",")).join("L"),
             b.route.releaseAt ? "#ffd16f" : b.route.clear ? "#9df0b4" : "#f2f4df",
             8,
             'opacity=".85"',
@@ -8461,7 +8481,7 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
           const el = sim.time - (t.branchSince ?? sim.time);
           let pos = null;
           const stub = [st.pts[0], st.pts[1]],
-            throat = [st.pts[1], st.pts[2], [def.side === "L" ? 215 : 985, g.mid], [def.side === "L" ? 350 : 850, g.y(t.track)], [600, g.y(t.track)]];
+            throat = [st.pts[1], st.pts[2], [def.side === "L" ? 215 : 985, (naturalLane(sides[def.side], g.y(t.track), g.mid) || { y: g.mid }).y], [def.side === "L" ? 350 : 850, g.y(t.track)], [600, g.y(t.track)]];
           if (t.phase === "branchLineIn") pos = sample(stub, Math.min(1, el / TRAVEL) * length(stub));
           else if (t.phase === "branchHold") pos = sample(stub, length(stub));
           else if (t.phase === "branchEntering") pos = sample(throat, Math.min(1, el / THROAT) * length(throat));
