@@ -1,19 +1,20 @@
 (() => {
   "use strict";
-  // VONAL 40 · 0.13 — ellenirányú kijárat a kétvágányú szakaszon.
+  // VONAL 40 · 0.14 — menetirány az engedélyekhez igazítva, ellenirányú kijárat a kézi és a gépi területen is.
   //
   // Eddig: az engedély csak arra a vonali vágányra volt kiadható, amelynek a menetiránya már a vonaté
-  // volt; ha a másik irányból le volt foglalva (menetirány átállítva vagy ellenkező irányú engedély),
-  // a kijárat elutasult („Nincs megfelelő menetirány"), és a menetirány sem volt átállítható.
+  // volt. A motor csak állomási nézetben és csak teljesen szabad vágányon állította át az irányt, ezért
+  // KÖFI-nézetben az egyvágányú szakaszon elakadt („Nincs megfelelő menetirány"), kétvágányún pedig nem
+  // lehetett a másik menetirány szerinti vágányra kijáratni.
   //
-  // Mostantól a játékos saját kezelésű állomásán álló vonat kijárathatóvá válik a másik menetirány
-  // szerinti vonali vágányra is: a pult átállítja annak a vágánynak a menetirányát, és kiadja az
-  // engedélyt. Ez akkor is megy, ha arra a vágányra ellenkező irányú engedély van kiadva — az a vonat
-  // a jelzője előtt marad, amíg a menetirány vissza nem áll. A gép (automata terület) ezt nem teszi meg.
+  // Mostantól – a játékos és a gép területén egyaránt – a kijárat a másik menetirány szerinti vonali
+  // vágányra is megy: a pult átállítja annak a vágánynak a menetirányát, és kiadja az engedélyt. Ha arra
+  // a vágányra ellenkező irányú engedély van kiadva, de a vonat még az állomáson áll, azt az engedélyt
+  // visszavonja (a vonat újra engedélyt kér, és a másik vágányt vagy a következő menetet kapja).
   //
-  // Egyetlen eset marad tiltott: ha a vonali vágányon fizikailag vonat van (a térközöknek van
-  // gazdájuk). A motor szembeközlekedésnél térközfoglaltsági ütközést dobna, ezért ott a kijárat
-  // továbbra is elutasul, külön üzenettel.
+  // Amit nem tesz: nem állítja át olyan vonali vágány irányát, amelyen fizikailag vonat van (a motor
+  // szembeközlekedésnél térközfoglaltsági ütközést dobna), és nem vonja vissza már elindult vonat
+  // engedélyét. Ilyenkor a kijárat elutasul, külön üzenettel.
   function install() {
     if (typeof Simulation === "undefined" || typeof sim === "undefined") return false;
     const P = Simulation.prototype;
@@ -21,57 +22,53 @@
     if (typeof P.grant !== "function" || typeof P.setLineDirection !== "function") return false;
     P._v40Ellenirany = true;
 
-    const sajat = (s, station) => typeof playerOwns !== "function" || playerOwns(s, station);
-    const foglaltFizikailag = (lane) => lane.blocks.some((b) => b.owner);
-    const nev = (lane) => lane + 1 + ". vonali vágány";
+    const vonatRajta = (lane) => lane.blocks.some((b) => b.owner);
+    const nev = (k) => k + 1 + ". vonali vágány";
+    const hol = (sec) =>
+      typeof STATIONS !== "undefined" && STATIONS[sec.from] && STATIONS[sec.to]
+        ? `${STATIONS[sec.from].name}–${STATIONS[sec.to].name}`
+        : sec.id;
 
-    // A gépi engedélykiadás alatt nem erőltetünk ellenirányt.
-    if (typeof globalThis.autoOutside === "function" && !globalThis.autoOutside._v40wrapped) {
-      const prevAutoOutside = globalThis.autoOutside;
-      const wrapped = function (s) {
-        s._gepiEngedely = true;
-        try {
-          return prevAutoOutside(s);
-        } finally {
-          s._gepiEngedely = false;
-        }
-      };
-      wrapped._v40wrapped = true;
-      globalThis.autoOutside = wrapped;
+    // Az adott vonali vágányra kiadott, még el nem indult ellenirányú engedélyek visszavonása.
+    // Igazzal tér vissza, ha a vágány felszabadítható; hamissal, ha mozgásban lévő vonat tartja.
+    function felszabadit(s, sec, k, sajatId) {
+      for (const [tid, p] of Object.entries(s.permissions)) {
+        if (tid === sajatId || p.section !== sec.id || p.lane !== k) continue;
+        const t = s.trains.find((x) => x.id === tid);
+        if (!t || t.phase !== "parked") return false;
+        if (!s.revoke(tid).ok) return false;
+        s.log(`${tid}: engedélye visszavonva – ${hol(sec)}, ${nev(k)} menetiránya a másik vonathoz állt át.`);
+      }
+      return true;
     }
 
     const prevGrant = P.grant;
     P.grant = function (id, track) {
       const r = prevGrant.call(this, id, track);
       if (r.ok || !/Nincs megfelelő menetirány/.test(r.msg || "")) return r;
-      if (this._gepiEngedely) return r;
 
       const t = this.trains.find((x) => x.id === id);
       if (!t) return r;
       const to = this.next(t);
       if (to == null) return r;
-      const section = this.blockSystem.section(t.at, to);
-      if (!section || !section.double) return r;
-      if (!sajat(this, t.at)) return r;
+      const sec = this.blockSystem.section(t.at, to);
+      if (!sec) return r;
 
-      // a szabad vágányt választjuk; ha mindkettőn van vonat, marad az elutasítás.
-      // Elsőként az olyan vágány jön, amelyre nincs ellenkező irányú engedély kiadva.
-      const claim = (k) => Object.values(this.permissions).some((p) => p.section === section.id && p.lane === k);
-      const jelolt = section.lanes
+      const claim = (k) => Object.values(this.permissions).some((p) => p.section === sec.id && p.lane === k);
+      const jelolt = sec.lanes
         .map((l, k) => ({ l, k }))
-        .filter(({ l }) => !foglaltFizikailag(l))
+        .filter(({ l }) => !vonatRajta(l))
         .sort((a, b) => claim(a.k) - claim(b.k));
       if (!jelolt.length)
-        return { ok: false, msg: "Ellenirányú kijárat sem lehetséges: mindkét vonali vágányon vonat van az állomásközben." };
+        return { ok: false, msg: "A kijárat nem állítható: az állomásközben vonat van a vonali vágányon." };
 
-      const { l, k } = jelolt[0];
-      const ellenEngedely = Object.values(this.permissions).some((p) => p.section === section.id && p.lane === k);
-      l.direction = t.dir;
-      this.log(
-        `${STATIONS[t.at].name}: ellenirányú kijárat a(z) ${nev(k)}on (${STATIONS[t.at].name}–${STATIONS[to].name})` +
-          (ellenEngedely ? ", ellenkező irányú engedély mellett — az a vonat a jelzője előtt marad." : ".")
-      );
-      return prevGrant.call(this, id, track);
+      for (const { l, k } of jelolt) {
+        if (!felszabadit(this, sec, k, id)) continue;
+        l.direction = t.dir;
+        this.log(`${hol(sec)}, ${nev(k)}: menetirány átállítva ${STATIONS[to].name} felé a kijárathoz.`);
+        return prevGrant.call(this, id, track);
+      }
+      return { ok: false, msg: "A kijárat nem állítható: a vonali vágányt elindult, ellenkező irányú vonat tartja." };
     };
 
     // A KÖFI menetiránygombja is átállítja a vágányt, ha csak engedély foglalja, vonat nincs rajta.
@@ -81,11 +78,12 @@
       if (r.ok) return r;
       const sec = this.blockSystem.sections[sectionId],
         l = sec?.lanes?.[lane];
-      if (!l || !sec.double || ![1, -1].includes(dir)) return r;
-      if (foglaltFizikailag(l)) return { ok: false, msg: "A menetirány nem állítható: az állomásközben vonat van a vágányon." };
+      if (!l || ![1, -1].includes(dir)) return r;
+      if (vonatRajta(l)) return { ok: false, msg: "A menetirány nem állítható: az állomásközben vonat van a vágányon." };
+      if (!felszabadit(this, sec, lane, null))
+        return { ok: false, msg: "A menetirány nem állítható: elindult vonat engedélye van a vágányon." };
       l.direction = dir;
-      const hol = STATIONS[sec.from] && STATIONS[sec.to] ? `${STATIONS[sec.from].name}–${STATIONS[sec.to].name}` : sectionId;
-      this.log(`${hol}, ${nev(lane)}: menetirány átállítva kiadott engedély mellett — az ellenkező irányú vonat a jelzője előtt marad.`);
+      this.log(`${hol(sec)}, ${nev(lane)}: menetirány kézzel átállítva.`);
       return { ok: true };
     };
 
