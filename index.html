@@ -13,7 +13,9 @@ class AutomaticBlocks{
   for(const s of STATIONS){if(!s.control)continue;if(prev!==null){
     const a=STATIONS[prev],id=`${prev}-${s.id}`,length=Math.abs(s.km-a.km),n=Math.max(1,Math.ceil(length/2)),double=s.id<=14;
     const section={id,from:prev,to:s.id,length,double,lanes:[]};
-    for(let lane=0;lane<(double?2:1);lane++)section.lanes.push({id:`${id}/${lane}`,direction:lane===0?1:-1,blocks:Array.from({length:n},(_,i)=>({index:i,from:i*2,to:Math.min(length,(i+1)*2),owner:null}))});
+    // Jobb oldali közlekedés: a rajzon felül lévő 1. vonali vágány Budapest felé, az alsó 2. Pécs felé
+// (Budapestről nézve a jobb oldali vágányon haladnak Pécs felé).
+for(let lane=0;lane<(double?2:1);lane++)section.lanes.push({id:`${id}/${lane}`,direction:lane===0?-1:1,blocks:Array.from({length:n},(_,i)=>({index:i,from:i*2,to:Math.min(length,(i+1)*2),owner:null}))});
     this.sections[id]=section;
   }prev=s.id;}
  }
@@ -147,9 +149,12 @@ class LegacySimulation {
 // helyeken legalább egy perc tartózkodás (a füzetben nem szereplő, csak számított áthaladási pontokon nem).
 const MIN_DWELL=1;
 function timetableDeparture(now,plan){
+ // A füzetben nem szereplő (csak számított) ponton nincs megállás: a vonat áthalad. A menetrendi
+ // helyzetét a timetableDistance tartja, ezért a tervezett időpontnál korábban nem ér a következő
+ // megállási helyre.
+ if(plan?.source===false)return now+.025;
  const planned=plan?.dep??now;
- if(now<=planned)return planned;
- return now+(plan?.source===false?.025:MIN_DWELL);
+ return now<=planned?planned:now+MIN_DWELL;
 }
 function makeTimetablePlan(service,offset){
  const stops=service.stops.map(p=>({...p,arr:p.arr+offset,dep:p.dep+offset,source:true})),plan=[];
@@ -250,8 +255,10 @@ function drawNetwork(){
  let h=`<defs><pattern id="netGrid" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M50 0H0V50" stroke="#14252f" stroke-width=".7" fill="none"/></pattern></defs><rect x="-100000" y="-100000" width="200000" height="200000" fill="#071119"/><rect x="-100000" y="-100000" width="200000" height="200000" fill="url(#netGrid)"/>`;
  for(const sec of Object.values(sim.blockSystem.sections)){
   const lyt=L.links[sec.id],left=L.nodes[sec.from],right=L.nodes[sec.to];
+  if(!lyt)continue;
+  const by=lyt.y??400;  // a fővonal 400-on fut, a párhuzamos elkerülő lejjebb
   for(let lane=0;lane<sec.lanes.length;lane++){
-   const ln=sec.lanes[lane],y=400+(sec.double?(lane===0?-14:14):0);
+   const ln=sec.lanes[lane],y=by+(sec.double?(lane===0?-14:14):0);
    h+=drawPath(`M${lyt.x1} ${y}H${lyt.x2}`,'#344d5c',4);
    for(const b of ln.blocks){const x1=lyt.x1+(lyt.x2-lyt.x1)*b.from/sec.length,x2=lyt.x1+(lyt.x2-lyt.x1)*b.to/sec.length;
     h+=drawPath(`M${x1+3} ${y}H${x2-3}` ,b.owner?'#ff5d72':'#7397aa',4,`data-block="${ln.id}/${b.index}" data-owner="${b.owner||''}"`);
@@ -259,11 +266,11 @@ function drawNetwork(){
     h+=`<g data-blocksignal="${ln.id}/${b.index}" data-aspect="${aspect}"><title>${esc(STATIONS[sec.from].name)}–${esc(STATIONS[sec.to].name)}, ${lane+1}. vonali vágány, ${b.index+1}. térköz: ${(b.to-b.from).toFixed(2)} km · ${b.owner?'foglalt: '+b.owner:'szabad'}</title><path d="M${x} ${y}V${sy}" stroke="#9ab6c5" stroke-width="1"/><path d="M${x-5} ${sy-4}L${x+5} ${sy}L${x-5} ${sy+4}Z" fill="${c}" transform="rotate(${dir===1?0:180} ${x} ${sy})"/></g>`;
     h+=`<text x="${(x1+x2)/2}" y="${y+(lane===0?-28:31)}" text-anchor="middle" fill="#64899f" font-size="9">${(b.to-b.from).toFixed(1)} km</text>`;
    }
-   const x=(lyt.x1+lyt.x2)/2,dy=400+75+lane*25;
+   const x=(lyt.x1+lyt.x2)/2,dy=by+75+lane*25;
    h+=`<g data-netdir="${-ln.direction}" data-section="${sec.id}" data-lane="${lane}" role="button" aria-label="Menetirány ${sec.id} ${lane}" style="cursor:pointer"><rect x="${x-105}" y="${dy-13}" width="210" height="23" rx="4" fill="#132d3b" stroke="#3f7b92"/><text x="${x}" y="${dy+3}" text-anchor="middle" fill="#85dded" font-size="10">${lane+1}. vágány: ${ln.direction===1?'Pécs →':'← Budapest'} · irányváltás</text></g>`;
   }
-  h+=`<text x="${(lyt.x1+lyt.x2)/2}" y="550" text-anchor="middle" fill="#7193a8" font-size="11">${sec.length.toFixed(1)} km · ${sec.lanes[0].blocks.length} térköz / vágány</text>`;
-  STATIONS.filter(s=>!s.control&&s.id>sec.from&&s.id<sec.to).forEach(s=>{const q=(s.km-STATIONS[sec.from].km)/sec.length,x=lyt.x1+q*(lyt.x2-lyt.x1);h+=`<path d="M${x} 376V424" stroke="#c7d5a5" stroke-width="2"/><text x="${x}" y="594" text-anchor="middle" fill="#b6c9d3" font-size="10">${esc(s.name)} · ${s.tracks.length||'—'} vágány</text>`;});
+  h+=`<text x="${(lyt.x1+lyt.x2)/2}" y="${by+150}" text-anchor="middle" fill="#7193a8" font-size="11">${sec.length.toFixed(1)} km · ${sec.lanes[0].blocks.length} térköz / vágány</text>`;
+  (sec.allomasok?STATIONS.filter(s=>sec.allomasok.includes(s.id)):STATIONS.filter(s=>!s.control&&s.id>sec.from&&s.id<sec.to)).forEach(s=>{const q=(s.km-STATIONS[sec.from].km)/sec.length,x=lyt.x1+q*(lyt.x2-lyt.x1);h+=`<path d="M${x} ${by-24}V${by+24}" stroke="#c7d5a5" stroke-width="2"/><text x="${x}" y="${by+194}" text-anchor="middle" fill="#b6c9d3" font-size="10">${esc(s.name)} · ${s.tracks.length||'—'} vágány</text>`;});
  }
  for(const sid of L.ids){const n=L.nodes[sid],s=STATIONS[sid],top=n.y-(s.tracks.length-1)*13-60,bottom=n.y+(s.tracks.length-1)*13+50;
   if(sid===sim.selected)h+=`<rect x="${n.x-18}" y="${top-20}" width="${n.w+36}" height="${bottom-top+40}" rx="10" fill="#0c2533" stroke="#3f98b1" stroke-dasharray="5 4"/>`;
@@ -3648,7 +3655,7 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
 
     // ───────────────────────────────────────────────────────────────────
     // 3) KÉTVÁGÁNYÚ ÁLLOMÁSI PULT — ahol az állomásköz kétvágányú, a pulton is két vonali vágány.
-    //    Vágánykiosztás a KÖFI-vel azonos: 1. (felső) vonali vágány Pécs felé, 2. (alsó) Budapest felé,
+    //    Vágánykiosztás a KÖFI-vel azonos: 1. (felső) vonali vágány Budapest felé, 2. (alsó) Pécs felé (jobb oldali közlekedés),
     //    menetirányváltással követve. A bejárati jelző (A/B) a beérkező, a kijárati cél (VL/VR) a kimenő vágányon.
     // ───────────────────────────────────────────────────────────────────
     const CONTROL_IDS = STATIONS.filter((x) => x.control).map((x) => x.id);
@@ -4397,6 +4404,129 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
       delete t.vartElsobbseg;
       return prevGrant.call(this, id, track);
     };
+
+    return true;
+  }
+
+  if (!install()) {
+    let tries = 0;
+    const timer = setInterval(() => {
+      if (install() || ++tries > 40) clearInterval(timer);
+    }, 50);
+  }
+})();
+
+</script>
+<script id="v40-elkerulo">
+(() => {
+  "use strict";
+  // VONAL 40 · 0.15 — Százhalombatta–Iváncsa elkerülő.
+  //
+  // Az Ercsit elkerülő szakasz a modellben Százhalombatta és Pusztaszabolcs között önálló, kétvágányú
+  // állomásközként szerepel (Iváncsa megállóhely a modellben amúgy sem forgalmi szolgálati hely, az
+  // elkerülő ott csatlakozik vissza). Aki Ercsiben és a Dunai Finomítónál nem áll meg, az ezen jár:
+  // a 8xx InterCityk és a 42xx vonatok nagy része. Aki Ercsiben megáll (például a 4220), marad a
+  // fővonalon. A tehervonatok szintén a fővonalon közlekednek.
+  //
+  // Nem hiteles: az elkerülő hossza a fővonali távolsággal (23,9 km) azonos, hogy a menetrendi
+  // helyzetszámítás pontos maradjon; a valóságban a szakasz valamivel rövidebb. Az állomási pulton az
+  // elkerülő a szokásos vonali vágányokon jelenik meg, külön rajza csak a KÖFI-ben van.
+  const ELK = "10-14";
+  const INNEN = 10,
+    ODA = 14,
+    HOSSZ = 23.9;
+
+  function install() {
+    if (typeof Simulation === "undefined" || typeof AutomaticBlocks === "undefined") return false;
+    const P = Simulation.prototype;
+    if (P._v40Elkerulo) return true;
+    if (typeof P.ensureBlocks !== "function" || typeof P.next !== "function") return false;
+    P._v40Elkerulo = true;
+
+    function szakaszt(bs) {
+      if (!bs || bs.sections[ELK]) return;
+      const n = Math.ceil(HOSSZ / 2);
+      bs.sections[ELK] = {
+        id: ELK,
+        from: INNEN,
+        to: ODA,
+        length: HOSSZ,
+        double: true,
+        elkerulo: true,
+        allomasok: [13], // Iváncsa megállóhely az elkerülőn van, Ercsi és a Dunai Finomító nincs
+        lanes: [0, 1].map((k) => ({
+          id: `${ELK}/${k}`,
+          direction: k === 0 ? -1 : 1,
+          blocks: Array.from({ length: n }, (_, i) => ({ index: i, from: i * 2, to: Math.min(HOSSZ, (i + 1) * 2), owner: null })),
+        })),
+      };
+    }
+
+    const prevEnsure = P.ensureBlocks;
+    P.ensureBlocks = function () {
+      const r = prevEnsure.call(this);
+      szakaszt(this.blockSystem);
+      return r;
+    };
+    szakaszt(sim.blockSystem);
+
+    // Elkerülőt használ: menetrendi vonat, amely sem Ercsiben (12), sem a Dunai Finomítónál (11) nem áll meg.
+    const elkerulos = (t) => {
+      if (!t || !t.menetrendi || !Array.isArray(t.plan) || t.plan.length < 2) return false;
+      if (t.elkerulo !== undefined) return t.elkerulo;
+      const megall = new Set(t.plan.filter((p) => p.source !== false).map((p) => p.station));
+      const erinti = t.plan.some((p) => p.station === INNEN) && t.plan.some((p) => p.station === ODA);
+      t.elkerulo = erinti && !megall.has(11) && !megall.has(12);
+      return t.elkerulo;
+    };
+    globalThis.elkeruloVonat = elkerulos;
+
+    const prevNext = P.next;
+    P.next = function (t) {
+      const n = prevNext.call(this, t);
+      if (n !== 12 || !elkerulos(t)) return n;
+      if (t.at === INNEN && t.dir === 1) return ODA;
+      if (t.at === ODA && t.dir === -1) return INNEN;
+      return n;
+    };
+
+    // ── KÖFI: az elkerülő a fővonal alatt, külön ívvel ──────────────────────────
+    if (typeof globalThis.nwLayout === "function" && !globalThis.nwLayout._v40elkerulo) {
+      const prevLayout = globalThis.nwLayout;
+      const wrapped = function () {
+        const L = prevLayout();
+        const a = L.nodes[INNEN],
+          b = L.nodes[ODA];
+        if (a && b) {
+          L.links[ELK] = { x1: a.x + a.w, x2: b.x, y: 700 };
+          L.height = Math.max(L.height || 0, 900);
+        }
+        return L;
+      };
+      wrapped._v40elkerulo = true;
+      globalThis.nwLayout = wrapped;
+    }
+
+    if (typeof globalThis.drawNetwork === "function" && !globalThis.drawNetwork._v40elkerulo) {
+      const prevDraw = globalThis.drawNetwork;
+      const wrapped = function () {
+        prevDraw();
+        const L = typeof NW !== "undefined" && NW.layout;
+        const lyt = L && L.links[ELK];
+        if (!NW.svg || !lyt) return;
+        const a = L.nodes[INNEN],
+          b = L.nodes[ODA],
+          g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        g.id = "elkerulo-csatlakozas";
+        g.innerHTML =
+          `<path d="M${a.x + a.w} 400L${lyt.x1} ${lyt.y}" stroke="#46697e" stroke-width="3" fill="none"/>` +
+          `<path d="M${lyt.x2} ${lyt.y}L${b.x} 400" stroke="#46697e" stroke-width="3" fill="none"/>` +
+          `<text x="${(lyt.x1 + lyt.x2) / 2}" y="${lyt.y - 60}" text-anchor="middle" fill="#8fb6c9" font-size="13">Százhalombatta–Iváncsa elkerülő · Ercsi érintése nélkül</text>`;
+        NW.svg.append(g);
+      };
+      wrapped._v40elkerulo = true;
+      globalThis.drawNetwork = wrapped;
+    }
 
     return true;
   }

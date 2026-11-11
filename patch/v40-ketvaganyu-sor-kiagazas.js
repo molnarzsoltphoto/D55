@@ -592,7 +592,7 @@
 
     // ───────────────────────────────────────────────────────────────────
     // 3) KÉTVÁGÁNYÚ ÁLLOMÁSI PULT — ahol az állomásköz kétvágányú, a pulton is két vonali vágány.
-    //    Vágánykiosztás a KÖFI-vel azonos: 1. (felső) vonali vágány Pécs felé, 2. (alsó) Budapest felé,
+    //    Vágánykiosztás a KÖFI-vel azonos: 1. (felső) vonali vágány Budapest felé, 2. (alsó) Pécs felé (jobb oldali közlekedés),
     //    menetirányváltással követve. A bejárati jelző (A/B) a beérkező, a kijárati cél (VL/VR) a kimenő vágányon.
     // ───────────────────────────────────────────────────────────────────
     const CONTROL_IDS = STATIONS.filter((x) => x.control).map((x) => x.id);
