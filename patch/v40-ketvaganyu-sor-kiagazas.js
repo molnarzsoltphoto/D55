@@ -1,6 +1,6 @@
 (() => {
   "use strict";
-  // VONAL 40 · 0.9 — kétvágányú állomási pult, sorrendtartó engedélyezés, kiágazások modellhatárral.
+  // VONAL 40 · 0.9 — kétvágányú állomási pult, sorrendtartó engedélyezés, kiágazások.
   // Ugyanaz a patch-minta, mint a korábbi v40-* blokkok: a már betöltött motorra és felületre épül.
 
   function install() {
@@ -52,8 +52,6 @@
             break;
           }
       }
-      const gb = this.godisaBranch;
-      if (station === 37 && gb?.reserved?.track === track && gb.reserved.id !== id) ahead.push({ id: gb.reserved.id, why: "csatlakozó foglalás" });
       for (const b of Object.values(this.lineBranches || {}))
         if (b.station === station && b.reserved?.track === track && b.reserved.id !== id) ahead.push({ id: b.reserved.id, why: "kiágazási foglalás" });
       return ahead;
@@ -193,7 +191,7 @@
     };
 
     // ───────────────────────────────────────────────────────────────────
-    // 2) KIÁGAZÁSOK — egy-egy modellezett állomásköz egy modellhatárig (mint a godisai Komló-ág).
+    // 2) KIÁGAZÁSOK — a csatlakozó állomástól egy modellezett állomásköz a kiágazó vonalon.
     //    A kiágazás oldala (L = Budapest felőli, R = Pécs felőli állomásvég; vert: up = felül, down = alul) játékparaméter,
     //    nem ellenőrzött ÁVU-adat; a listában módosítható.
     // ───────────────────────────────────────────────────────────────────
@@ -201,19 +199,21 @@
       // double: irányonként külön vágány (egyszerre egy be- és egy kimenő vonat lehet a szakaszon); ownThroat: saját bejárati vágányok, nem zárja a fővonali állomásvéget
       { id: "kelenfold-keleti", station: 1, side: "L", name: "Budapest-Keleti felé", double: true, ownThroat: true, travel: 3 },
       { id: "kelenfold-gyor", station: 1, side: "R", name: "Győr felé", double: true, ownThroat: true, travel: 3 },
-      { id: "kelenfold-szfvar", station: 1, side: "R", vert: "down", name: "Székesfehérvár felé", double: true, ownThroat: true, travel: 3 },
+      { id: "kelenfold-szfvar", station: 1, side: "R", vert: "down", name: "Székesfehérvár felé (Érd alsón át)", double: true, ownThroat: true, travel: 3 },
+      // a 30a Érd felsőt érintő vonatai itt hagyják el a modellt (Tárnok felé), saját váltókörzettel
+      { id: "erdfelso-szfvar", station: 8, side: "R", vert: "down", name: "Székesfehérvár felé", double: true, ownThroat: true, travel: 3 },
       { id: "pszabolcs-dunaujvaros", station: 14, side: "R", vert: "up", name: "Dunaújváros felé" },
-      { id: "pszabolcs-szfvar", station: 14, side: "R", vert: "down", name: "Székesfehérvár felé" },
-      { id: "sarbogard-szfvar", station: 18, side: "L", name: "Székesfehérvár felé" },
+      { id: "pszabolcs-szfvar", station: 14, side: "R", vert: "down", name: "Székesfehérvár felé (Börgöndön át)" },
+      { id: "sarbogard-szfvar", station: 18, side: "L", vert: "down", name: "Székesfehérvár felé" },
       { id: "retszilas-dunaujvaros", station: 19, side: "L", name: "Dunaújváros felé" },
-      { id: "retszilas-szekszard", station: 19, side: "R", name: "Szekszárd felé" },
+      { id: "retszilas-szekszard", station: 19, side: "R", name: "Baja felé (Szekszárd, Bátaszék)" },
       { id: "dombovar-bataszek", station: 33, side: "R", vert: "up", name: "Bátaszék felé" },
       { id: "dombovar-kaposvar", station: 33, side: "R", vert: "down", name: "Kaposvár felé" },
-      { id: "godisa-komlo", station: 37, side: "R", vert: "down", name: "Komló felé (menetrendi)" },
+      { id: "godisa-komlo", station: 37, side: "R", vert: "down", name: "Komló felé" },
       { id: "szentlorinc-szigetvar", station: 43, side: "L", name: "Szigetvár felé" },
       { id: "szentlorinc-sellye", station: 43, side: "R", name: "Sellye felé" },
     ];
-    const TRAVEL = 5, // perc a modellhatár és a modelljelző között (játékparaméter)
+    const TRAVEL = 5, // perc a modellezett szakasz vége és a kiágazási modelljelző között (játékparaméter)
       THROAT = 1; // perc a be-/kijárat
 
     Object.assign(phases, {
@@ -223,8 +223,8 @@
       branchEntering: "Kiágazási bejáraton",
       branchReady: "Kiágazási kijáratra vár",
       branchLeaving: "Kiágazási kijáraton",
-      branchLineOut: "Kiágazási modellszakaszon",
-      branchOutside: "Modellhatáron kívül",
+      branchLineOut: "Kiágazási szakaszon távolodik",
+      branchOutside: "A modellezett szakaszon kívül",
     });
 
     const LB = (window.LineBranches = {
@@ -446,7 +446,7 @@
             t.finishedAt = s.time;
             t.branchPermission = false;
             this.release(b, t.id);
-            s.log(`${t.id}: kilépett a modellhatáron (${def.name}).`);
+            s.log(`${t.id}: elhagyta a modellezett szakaszt (${def.name}).`);
           }
         }
       },
@@ -471,7 +471,6 @@
       if (ctx && ctx.station === station && ctx.side === side) {
         const mine = sideUse(station, side, ctx.track, ctx.kind);
         if (mine) {
-          if (station === 37 && this.godisaBranch?.route) return true;
           return Object.values(this.routes).some((r) => {
             if (r.at !== station || r.side !== side) return false;
             const other = sideUse(station, side, r.track, r.kind);
@@ -778,7 +777,7 @@
             6,
             b.route.releaseAt ? `opacity="${blink}"` : "",
           );
-        stubTrains += `<circle cx="${st.sig[0]}" cy="${st.sig[1] + (def.vert === "down" ? 13 : -13)}" r="5" fill="${b.route?.clear ? "#35e36a" : "#ff3636"}" stroke="#111" stroke-width="2"/><text x="${st.label[0]}" y="${st.label[1]}" text-anchor="${st.anchor}" fill="#17321e" font-size="11">${esc(def.name)} · modellhatár${LB.occupants(b).length ? " · " + esc(LB.occupants(b).join(", ")) : ""}</text>`;
+        stubTrains += `<circle cx="${st.sig[0]}" cy="${st.sig[1] + (def.vert === "down" ? 13 : -13)}" r="5" fill="${b.route?.clear ? "#35e36a" : "#ff3636"}" stroke="#111" stroke-width="2"/><text x="${st.label[0]}" y="${st.label[1]}" text-anchor="${st.anchor}" fill="#17321e" font-size="11">${esc(def.name)}${LB.occupants(b).length ? " · " + esc(LB.occupants(b).join(", ")) : ""}</text>`;
         // menetek a csonkon
         for (const t of sim.trains) {
           if (!t.lineBranch || t.finished || t.lineBranch.id !== def.id) continue;
@@ -853,7 +852,7 @@
     panel.id = "line-branch-controls";
     panel.className = "body";
     panel.hidden = true;
-    (document.getElementById("godisa-controls") || document.getElementById("board")).after(panel);
+    document.getElementById("board").after(panel);
     const style = document.createElement("style");
     style.textContent = `#line-branch-controls h3{margin:4px 0 8px;font-size:15px}#line-branch-controls .lb{border:1px solid #3b5565;border-radius:8px;padding:9px;margin:8px 0;background:#132431}#line-branch-controls .lb b{color:#ffd28c}#line-branch-controls button{font-size:12px;padding:6px 8px;margin:3px 3px 0 0}#line-branch-controls table{margin-top:8px}`;
     document.head.append(style);
@@ -880,7 +879,7 @@
       panel.hidden = !branches.length || sim.view !== "station";
       if (panel.hidden) return;
       const owned = !sim.auto || playerOwns(sim, s);
-      let html = `<h3>${esc(STATIONS[s].name)} · kiágazások (modellhatárig egy állomásköz)</h3><p class="small">${owned ? "Ezt az állomást te kezeled: a kiágazási engedély, vágányút és jelző a tiéd." : "Az állomás nincs a kézi területben: a kiágazásokat a gép kezeli."} A kiágazás állomásvége (Budapest/Pécs felőli) játékparaméter, nem ellenőrzött ÁVU-adat. A menetidő ${TRAVEL} perc, a be-/kijárat ${THROAT} perc.</p>`;
+      let html = `<h3>${esc(STATIONS[s].name)} · kiágazások (egy modellezett állomásköz)</h3><p class="small">${owned ? "Ezt az állomást te kezeled: a kiágazási engedély, vágányút és jelző a tiéd." : "Az állomás nincs a kézi területben: a kiágazásokat a gép kezeli."} A kiágazás állomásvége (Budapest/Pécs felőli) játékparaméter, nem ellenőrzött ÁVU-adat. A menetidő kiágazásonként 3–${TRAVEL} perc, a be-/kijárat ${THROAT} perc.</p>`;
       for (const def of branches) {
         const b = LB.state(sim, def.id);
         html += `<div class="lb"><b>${esc(def.name)}</b> · ${def.side === "L" ? "Budapest felőli" : "Pécs felőli"} állomásvég · szakasz: ${LB.occupants(b).length ? '<span class="red">foglalt/lefoglalt: ' + esc(LB.occupants(b).join(", ")) + "</span>" : '<span class="green">szabad</span>'} · vágányút: ${b.route ? esc(b.route.id) + " · " + b.route.track + ". vg · " + (b.route.releaseAt ? "oldás folyamatban" : b.route.clear ? '<span class="green">Szabad</span>' : "Megállj") : "nincs"}<div><button onclick="lbAct('in','${def.id}')">Kézi tehermenet ${esc(def.name.replace(" felé", " felől"))}</button><button onclick="lbAct('clear','${def.id}')">Jelző Szabad</button><button onclick="lbAct('stop','${def.id}')">Megállj!</button><button onclick="lbAct('cancel','${def.id}')">Vágányút törlése / oldás</button></div><div class="small">A bejövő menet a Fogadóvágány-választóban kijelölt vágányra érkezik (alapvágány: első szabad).</div></div>`;
@@ -963,7 +962,7 @@
         g.setAttribute("data-linebranch", def.id);
         const tx = Math.min(x1, x2),
           w = Math.abs(x2 - x1);
-        g.innerHTML = `<path d="M${x0} 400L${x1} ${yb}H${x2}" stroke="${LB.occupants(b).length ? "#ff747e" : "#e5b45f"}" stroke-width="4" fill="none"/><circle cx="${x1}" cy="${yb + (down ? 11 : -11)}" r="4" fill="${b.route?.clear ? "#66ee95" : "#ff6c77"}"/><rect x="${tx}" y="${down ? yb + 18 : yb - 48}" width="${w}" height="30" rx="3" fill="#213f55" stroke="#e5b45f"/><text x="${tx + w / 2}" y="${down ? yb + 30 : yb - 36}" text-anchor="middle" fill="white" font-size="10">${esc(def.name)} · modellhatár</text><text x="${tx + w / 2}" y="${down ? yb + 42 : yb - 24}" text-anchor="middle" fill="#ffd085" font-size="9">${LB.occupants(b).length ? esc(LB.occupants(b).join(", ")) : "szabad"}${b.route ? " · vágányút " + (b.route.clear ? "Szabad" : "Megállj") : ""}</text>`;
+        g.innerHTML = `<path d="M${x0} 400L${x1} ${yb}H${x2}" stroke="${LB.occupants(b).length ? "#ff747e" : "#e5b45f"}" stroke-width="4" fill="none"/><circle cx="${x1}" cy="${yb + (down ? 11 : -11)}" r="4" fill="${b.route?.clear ? "#66ee95" : "#ff6c77"}"/><rect x="${tx}" y="${down ? yb + 18 : yb - 48}" width="${w}" height="30" rx="3" fill="#213f55" stroke="#e5b45f"/><text x="${tx + w / 2}" y="${down ? yb + 30 : yb - 36}" text-anchor="middle" fill="white" font-size="10">${esc(def.name)}</text><text x="${tx + w / 2}" y="${down ? yb + 42 : yb - 24}" text-anchor="middle" fill="#ffd085" font-size="9">${LB.occupants(b).length ? esc(LB.occupants(b).join(", ")) : "szabad"}${b.route ? " · vágányút " + (b.route.clear ? "Szabad" : "Megállj") : ""}</text>`;
         g.style.cursor = "pointer";
         g.onpointerdown = (ev) => {
           ev.stopPropagation();

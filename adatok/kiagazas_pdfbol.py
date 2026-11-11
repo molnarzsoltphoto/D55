@@ -29,15 +29,23 @@ REAL = {t["number"]: t for t in json.loads(m.group(1))} if m else {}
 LINES = [
     ("45-46.pdf", ("Székesfehérvár", "Baja"), (18, "sarbogard-szfvar"), (19, "retszilas-szekszard")),
     ("42.pdf", ("Pusztaszabolcs", "Dunaújváros"), None, (14, "pszabolcs-dunaujvaros")),
+    # a 43-as oldalon a „Pusztaszabolcs” sor a 42-es vonali csatlakozás kiindulási állomása, nem ennek a vonatnak a megállója
+    ("43.pdf", ("Rétszilas", "Simontornya"), (19, "retszilas-dunaujvaros"), None, {19, 20, 21}),
+    ("44.pdf", ("Pusztaszabolcs", "Székesfehérvár"), None, (14, "pszabolcs-szfvar")),
     ("41.pdf", ("Dombóvár", "Kaposvár"), (1, "kelenfold-keleti"), (33, "dombovar-kaposvar")),
     ("50.pdf", ("Dombóvár", "Baja"), None, (33, "dombovar-bataszek")),
     ("47.pdf", ("Dombóvár", "Komló"), None, (37, "godisa-komlo")),
     ("60.pdf", ("Szigetvár", "Pécs"), (43, "szentlorinc-szigetvar"), None),
     ("61.pdf", ("Szentlőrinc", "Sellye"), None, (43, "szentlorinc-sellye")),
-    ("30a.pdf", ("Budapest-Kelenföld", "Székesfehérvár"), (1, "kelenfold-keleti"), (1, "kelenfold-szfvar"), {0, 1}),
+    # a 30a-oldal két útvonalat tartalmaz: Kelenföld–Érdliget–Érd felső–Tárnok (a modellezett 40a-korridor) és
+    # Kelenföld–Albertfalva–Érd alsó–Tárnok (külön vonal). Amelyik érinti Érd felsőt, az ott ágazik ki.
+    ("30a.pdf", ("Budapest-Kelenföld", "Székesfehérvár"), (1, "kelenfold-keleti"), (1, "kelenfold-szfvar"), {0, 1, 8}),
     ("1.pdf", ("Budapest-Kelenföld", "Tatabánya"), (1, "kelenfold-keleti"), (1, "kelenfold-gyor"), {0, 1}),
 ]
 SPEED = 1.3  # km/perc a becsült áthaladáshoz
+# ha a vonat modellezett szakasza nem a fenti kiágazás állomásán ér véget, a megadott állomáson lévő kiágazásra
+# kerül: a 30a Érd felsőt érintő vonatai nem Kelenföldnél, hanem Érd felsőnél hagyják el a modellt
+REROUTE = {"kelenfold-szfvar": {8: "erdfelso-szfvar"}}
 
 
 def km(a, b):
@@ -66,6 +74,9 @@ def trains_of(pdf, anchors, top, bottom, only=None):
                     t += 1440
                 fixed.append((i, n, t))
                 prev = t
+            # hibás beolvasás szűrése: a füzetoldal vonalain nincs háromóránál hosszabb állomásköz
+            if any(b[2] - a[2] > 180 for a, b in zip(fixed, fixed[1:])):
+                continue
             model = [(i, BY_NAME[n.lower()], t) for i, n, t in fixed if is_model(n)]
             off = [(i, n, t) for i, n, t in fixed if not is_model(n)]
             lo = min((i for i, _, _ in model), default=None)
@@ -93,6 +104,10 @@ def trains_of(pdf, anchors, top, bottom, only=None):
                 continue
             if not frm and not to:
                 continue
+            if frm and stops[0]["station"] in REROUTE.get(frm[1], {}):
+                frm = (stops[0]["station"], REROUTE[frm[1]][stops[0]["station"]])
+            if to and stops[-1]["station"] in REROUTE.get(to[1], {}):
+                to = (stops[-1]["station"], REROUTE[to[1]][stops[-1]["station"]])
             # a csatlakozó állomás legyen a megállólista szélén (megállás nélküli áthaladásnál becsült idővel)
             if frm and stops[0]["station"] != frm[0]:
                 t = round(stops[0]["arr"] - km(frm[0], stops[0]["station"]) / SPEED)
@@ -129,7 +144,7 @@ def main():
                     old["stops"] = t["stops"]
                 old["lines"] = sorted(set(old["lines"] + t["lines"]))
     out, seen, replaced, dropped = [], set(), 0, 0
-    junction = {"kelenfold": 1, "pszabolcs": 14, "sarbogard": 18, "retszilas": 19, "dombovar": 33, "godisa": 37, "szentlorinc": 43}
+    junction = {"kelenfold": 1, "erdfelso": 8, "pszabolcs": 14, "sarbogard": 18, "retszilas": 19, "dombovar": 33, "godisa": 37, "szentlorinc": 43}
     for num, t in by_num.items():
         real = REAL.get(num)
         if real:
