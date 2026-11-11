@@ -9,4 +9,5 @@ const put=(id,body)=>{const tag='<script id=\"'+id+'\">\n'+body+'\n</script>';co
 put('kiagazas-menetrend','\"use strict\";globalThis.BRANCH_TIMETABLE='+fs.readFileSync('adatok/kiagazas-menetrend.json','utf8')+';');
 put('v40-ketvaganyu-sor-kiagazas',fs.readFileSync('patch/v40-ketvaganyu-sor-kiagazas.js','utf8'));
 put('v40-eloengedely',fs.readFileSync('patch/v40-eloengedely.js','utf8'));
+put('v40-menetrend-lista',fs.readFileSync('patch/v40-menetrend-lista.js','utf8'));
 fs.writeFileSync('index.html',s);console.log('index.html frissítve,', s.length, 'bájt');"
