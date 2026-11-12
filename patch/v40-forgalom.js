@@ -76,7 +76,10 @@
     const prevFree = P.freeReceivingTrack;
     P.freeReceivingTrack = function (station, trainId) {
       const t = this.trains.find((x) => x.id === trainId);
-      const atmeno = this.throughTrack(station);
+      // az átmenő fővágány menetirányonként más (jobb, illetve bal átmenő), ahol tudjuk
+      const atmeno = this.atmenoVagany
+        ? this.atmenoVagany(station, t?.dir ?? 1)
+        : this.throughTrack(station);
       const hasznalhato = (track) =>
         !this.closed[`${station}:${track}`] &&
         !this.busy(station, track, trainId) &&

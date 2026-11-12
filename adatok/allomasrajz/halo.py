@@ -106,13 +106,23 @@ def bridge(pts, edges, maxgap=95.0, maxang=18.0):
     """A rajzi jelek (kisiklasztó, útátjáró, szigetelt sín) kivágják a vonalat – összekötjük.
     Zsákvégből indulunk, és csak akkor kötünk össze, ha a hézag a vonal folytatásának irányába esik."""
     import math
+    def tipirany(poly, veg, hossz=12.0):
+        """A vonalvég iránya: nem az utolsó (gyakran 1 pixeles) szakaszból, hanem
+        a végponttól visszafelé legalább `hossz` pixelnyi szakaszból."""
+        q = poly[::-1] if veg == "b" else list(poly)
+        p1 = q[0]
+        for p0 in q[1:]:
+            if math.dist(p0, p1) >= hossz: break
+        else:
+            p0 = q[-1]
+        return math.atan2(p1[1]-p0[1], p1[0]-p0[0])
+
     deg, tip = {}, {}
     for e in edges:
         poly = e.get("poly") or [pts[e["a"]], pts[e["b"]]]
-        for a, b, p0, p1 in ((e["a"], e["b"], poly[1], poly[0]),
-                             (e["b"], e["a"], poly[-2], poly[-1])):
+        for a, veg in ((e["a"], "a"), (e["b"], "b")):
             deg[a] = deg.get(a, 0) + 1
-            tip.setdefault(a, []).append(math.atan2(p1[1]-p0[1], p1[0]-p0[0]))
+            tip.setdefault(a, []).append(tipirany(poly, veg))
     ends = [i for i in range(len(pts)) if deg.get(i, 0) == 1]
     def dang(a, b):
         return abs((a - b + math.pi) % (2*math.pi) - math.pi)

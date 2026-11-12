@@ -1,0 +1,13 @@
+{
+ "allomas": "Pusztaszabolcs",
+ "sim": 14,
+ "megjegyzes": "A modell 7 vágánya a valódi 01a-07 fővágányokra képezve. A pécsi (R) végről a 06-07 nem érhető el közvetlenül, a budapesti (L) végről a 01a-02 nem: ezekre a régi, szigorúbb szabály marad.",
+ "vagany": {"I": "01a", "II": "02", "III": "03", "IV": "04", "V": "05a", "VI": "06", "VII": "07"},
+ "atmeno": {"1": "III", "-1": "IV"},
+ "bejarat": {
+  "L.be": "Iváncsa|80",
+  "L.ki": "Iváncsa|60",
+  "R.be": "Szabadegyháza|76",
+  "R.ki": "Szabadegyháza|76"
+ }
+}
