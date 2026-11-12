@@ -209,9 +209,9 @@
       { id: "retszilas-szekszard", station: 19, side: "R", name: "Baja felé (Szekszárd, Bátaszék)" },
       { id: "dombovar-bataszek", station: 33, side: "R", vert: "up", name: "Bátaszék felé" },
       { id: "dombovar-kaposvar", station: 33, side: "R", vert: "down", name: "Kaposvár felé" },
-      { id: "godisa-komlo", station: 37, side: "R", vert: "down", name: "Komló felé" },
-      { id: "szentlorinc-szigetvar", station: 43, side: "L", name: "Szigetvár felé" },
-      { id: "szentlorinc-sellye", station: 43, side: "R", name: "Sellye felé" },
+      { id: "godisa-komlo", station: 37, side: "R", vert: "up", name: "Komló felé" },
+      { id: "szentlorinc-szigetvar", station: 43, side: "L", vert: "down", name: "Szigetvár felé" },
+      { id: "szentlorinc-sellye", station: 43, side: "R", vert: "down", name: "Sellye felé" },
     ];
     const TRAVEL = 5, // perc a modellezett szakasz vége és a kiágazási modelljelző között (játékparaméter)
       THROAT = 1; // perc a be-/kijárat

@@ -33,7 +33,7 @@
         length: HOSSZ,
         double: true,
         elkerulo: true,
-        allomasok: [13], // Iváncsa megállóhely az elkerülőn van, Ercsi és a Dunai Finomító nincs
+        allomasok: [], // Ercsi és a Dunai Finomító nincs rajta; Iváncsánál már a közös pályán fut
         lanes: [0, 1].map((k) => ({
           id: `${ELK}/${k}`,
           direction: k === 0 ? -1 : 1,
@@ -76,9 +76,12 @@
       const wrapped = function () {
         const L = prevLayout();
         const a = L.nodes[INNEN],
-          b = L.nodes[ODA];
-        if (a && b) {
-          L.links[ELK] = { x1: a.x + a.w, x2: b.x, y: 700 };
+          fo = L.links["12-14"];
+        if (a && fo) {
+          // az elkerülő Iváncsa megállóhely előtt csatlakozik vissza: onnan a pálya közös a fővonallal
+          const q = (STATIONS[13].km - STATIONS[12].km) / (STATIONS[14].km - STATIONS[12].km);
+          const x2 = fo.x1 + (fo.x2 - fo.x1) * q;
+          L.links[ELK] = { x1: a.x + a.w, x2, y: 700 };
           L.height = Math.max(L.height || 0, 900);
         }
         return L;
@@ -95,12 +98,12 @@
         const lyt = L && L.links[ELK];
         if (!NW.svg || !lyt) return;
         const a = L.nodes[INNEN],
-          b = L.nodes[ODA],
           g = document.createElementNS("http://www.w3.org/2000/svg", "g");
         g.id = "elkerulo-csatlakozas";
         g.innerHTML =
           `<path d="M${a.x + a.w} 400L${lyt.x1} ${lyt.y}" stroke="#46697e" stroke-width="3" fill="none"/>` +
-          `<path d="M${lyt.x2} ${lyt.y}L${b.x} 400" stroke="#46697e" stroke-width="3" fill="none"/>` +
+          `<path d="M${lyt.x2} ${lyt.y}L${lyt.x2 + 90} 400" stroke="#46697e" stroke-width="3" fill="none"/>` +
+          `<text x="${lyt.x2 + 30}" y="${lyt.y - 24}" text-anchor="start" fill="#9fc6d8" font-size="12">Iváncsa előtt visszacsatlakozik</text>` +
           `<text x="${(lyt.x1 + lyt.x2) / 2}" y="${lyt.y - 60}" text-anchor="middle" fill="#8fb6c9" font-size="13">Százhalombatta–Iváncsa elkerülő · Ercsi érintése nélkül</text>`;
         NW.svg.append(g);
       };

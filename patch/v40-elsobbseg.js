@@ -1,17 +1,17 @@
 (() => {
   "use strict";
-  // VONAL 40 · 0.14 — személyvonati elsőbbség a gépi forgalomirányításban.
+  // VONAL 40 · 0.16 — elsőbbségi rend a gépi forgalomirányításban: InterCity > személyvonat > tehervonat.
   //
-  // 1) Az automata a menetrendi (személy)vonatokat veszi előre: az engedélykiadás sorrendje előbb a
-  //    személyvonatoké (a tervezett indulás szerint), utána a tehervonatoké.
-  // 2) Tehervonat csak akkor kap engedélyt egy állomásközre, ha nem állja el egy személyvonat útját:
-  //    nem indul el, ha ugyanarra a szakaszra rövidesen személyvonat jön (az egyvágányú szakaszon
-  //    bármelyik irányból, a kétvágányún a vele azonos irányból), vagy ha már van oda személyvonati
-  //    engedély. Így nem ragad be személyvonat a lassabb tehervonat mögött.
-  // 3) Kiéheztetés ellen: ha a tehervonat már régóta vár, és éppen nincs kiadott személyvonati
-  //    engedély a szakaszra, elindulhat.
-  const HORIZONT = 12; // perc: ennyivel a személyvonat tervezett indulása előtt már nem indul teher
-  const MAX_VARAKOZAS = 45; // perc: ennyi után a teher akkor is mehet, ha csak várható személyvonat van
+  // 1) Az automata ebben a sorrendben ad engedélyt (azonos szinten a tervezett indulás dönt).
+  // 2) Alacsonyabb rangú vonat nem indul el egy állomásközre, ha ott rövidesen magasabb rangú jön:
+  //    tehervonat vár a személyvonatra (12 perces előretekintés), személyvonat vár az IC-re (6 perc,
+  //    azonos irányban) — így az IC a félretett személyvonat mellett elhalad.
+  // 3) Kiéheztetés ellen: a visszatartás legfeljebb 45 perc a tehernél és 8 perc a személyvonatnál,
+  //    hogy a személyvonati késés ne nőjön meg a sorban állástól.
+  const SZEMELY_HORIZONT = 12,
+    IC_HORIZONT = 10,
+    MAX_TEHER = 45,
+    MAX_SZEMELY = 8;
 
   function install() {
     if (typeof Simulation === "undefined" || typeof sim === "undefined") return false;
@@ -20,23 +20,19 @@
     if (typeof P.grant !== "function") return false;
     P._v40Elsobbseg = true;
 
-    const szemely = (t) => !!t.menetrendi || t.kind === "passenger";
-    const teher = (t) => !szemely(t);
+    const ic = (t) => /^8\d\d$/.test(String(t.number || t.id || ""));
+    // 2 = InterCity, 1 = egyéb menetrendi vonat, 0 = tehervonat
+    const szint = (t) => (ic(t) ? 2 : t.menetrendi || t.kind === "passenger" ? 1 : 0);
 
-    // 1) sorrend: az automata futása alatt a személyvonatok állnak a lista elején
     if (typeof globalThis.autoOutside === "function" && !globalThis.autoOutside._v40elsobbseg) {
       const prev = globalThis.autoOutside;
       const wrapped = function (s) {
         const eredeti = s.trains;
         s._gepiEngedely = true;
         try {
-          s.trains = [...eredeti].sort((a, b) => {
-            const d = (szemely(b) ? 1 : 0) - (szemely(a) ? 1 : 0);
-            return d || (a.dep ?? 0) - (b.dep ?? 0);
-          });
+          s.trains = [...eredeti].sort((a, b) => szint(b) - szint(a) || (a.dep ?? 0) - (b.dep ?? 0));
           return prev(s);
         } finally {
-          // a rendezés csak az automata döntési sorrendjét befolyásolja, a lista marad a régi
           const sorrend = new Map(eredeti.map((t, i) => [t.id, i]));
           s.trains = [...s.trains].sort((a, b) => (sorrend.get(a.id) ?? 1e9) - (sorrend.get(b.id) ?? 1e9));
           s._gepiEngedely = false;
@@ -46,20 +42,48 @@
       globalThis.autoOutside = wrapped;
     }
 
-    // 2) a tehervonat visszatartása
-    P.szemelyvonatVarhato = function (t, to) {
+    // Magasabb rangú vonat várható-e ugyanarra az állomásközre?
+    P.elozoVonat = function (t, to) {
       const sec = this.blockSystem.section(t.at, to);
       if (!sec) return null;
       const vegek = [sec.from, sec.to];
+      const sajatSzint = szint(t);
+      const horizont = sajatSzint === 0 ? SZEMELY_HORIZONT : IC_HORIZONT;
       for (const p of this.trains) {
-        if (p.id === t.id || p.finished || !szemely(p)) continue;
+        if (p.id === t.id || p.finished || szint(p) <= sajatSzint) continue;
+        // Utolérés megelőzése: ha a magasabb rangú vonat a tervek szerint velünk egy időben (vagy
+        // előbb) érne a következő állomásra, nem állunk elé, mert az állomásközben már nem előzhet.
+        if (p.dir === t.dir) {
+          const mienk = t.plan?.find((x) => x.station === to),
+            ove = p.plan?.find((x) => x.station === to);
+          if (mienk && ove) {
+            const sajatErk = mienk.arr + (t.delay || 0),
+              oveErk = ove.arr + (p.delay || 0);
+            if (oveErk >= this.time - 5 && oveErk <= sajatErk + 3) return { vonat: p, kiadott: false };
+          }
+        }
+        // kétvágányú szakaszon az ellenirány nem zavar; egyvágányún igen (keresztezés), ezért ott az
+        // alacsonyabb rangú vonat a szembejövő magasabb rangút is megvárja
+        const ellenirany = p.dir !== t.dir;
+        if (ellenirany && sec.double) continue;
+        // Keresztezés az egyvágányú szakaszon: ha a szembejövő magasabb rangú vonat előbb ideérne,
+        // mint ahogy mi a szakaszt elhagynánk, nem foglaljuk el előle.
+        if (ellenirany && !sec.double) {
+          const ide = p.plan?.find((x) => x.station === t.at),
+            innen = t.plan?.find((x) => x.station === t.at),
+            oda = t.plan?.find((x) => x.station === to);
+          if (ide && innen && oda) {
+            const futas = Math.max(2, oda.arr - innen.dep),
+              oveIde = ide.arr + (p.delay || 0);
+            if (oveIde >= this.time - 5 && oveIde <= this.time + futas + 3) return { vonat: p, kiadott: false };
+          }
+        }
         const perm = this.permissions[p.id];
-        if (perm && perm.section === sec.id && (!sec.double || p.dir === t.dir)) return { vonat: p, kiadott: true };
+        if (perm && perm.section === sec.id) return { vonat: p, kiadott: true };
         if (p.phase !== "parked" || !vegek.includes(p.at)) continue;
-        if (sec.double && p.dir !== t.dir) continue; // kétvágányún az ellenirány nem zavarja
         const kov = this.next(p);
         if (kov == null || !vegek.includes(kov) || kov === p.at) continue;
-        if ((p.dep ?? 0) <= this.time + HORIZONT) return { vonat: p, kiadott: false };
+        if ((p.dep ?? 0) <= this.time + horizont) return { vonat: p, kiadott: false };
       }
       return null;
     };
@@ -67,15 +91,16 @@
     const prevGrant = P.grant;
     P.grant = function (id, track) {
       const t = this.trains.find((x) => x.id === id);
-      if (!this._gepiEngedely || !t || !teher(t)) return prevGrant.call(this, id, track);
+      if (!this._gepiEngedely || !t || szint(t) === 2) return prevGrant.call(this, id, track);
       const to = this.next(t);
       if (to == null) return prevGrant.call(this, id, track);
-      const utban = this.szemelyvonatVarhato(t, to);
+      const utban = this.elozoVonat(t, to);
       if (utban) {
         const varakozik = this.time - (t.dep ?? this.time);
-        if (utban.kiadott || varakozik < MAX_VARAKOZAS) {
+        const max = szint(t) === 0 ? MAX_TEHER : MAX_SZEMELY;
+        if (utban.kiadott || varakozik < max) {
           t.vartElsobbseg = utban.vonat.id;
-          return { ok: false, msg: `${utban.vonat.id} személyvonatnak elsőbbsége van, a tehervonat vár.` };
+          return { ok: false, msg: `${utban.vonat.id} elsőbbséget élvez, ${szint(t) === 0 ? "a tehervonat" : "a személyvonat"} vár.` };
         }
       }
       delete t.vartElsobbseg;
