@@ -58,6 +58,21 @@
       return null;
     };
 
+    // Jobb oldali közlekedés az állomáson is: a Pécs felé tartó vonat a vonal alsó, a Budapest felé
+    // tartó a felső vonali vágányáról jár be. Ha olyan állomási vágányt kap, amelyik ehhez az oldalhoz
+    // tartozik, a vágányútja nem megy át az átmenő kitérőn – így a másik állomásvégi irány egyszerre
+    // kezelhető (párhuzamos bejárat és kijárat egy állomásvégen).
+    const nemKeresztez = (station, dir, track) => {
+      const g = globalThis.LBgeom;
+      if (!g || typeof g.sideUse !== "function") return true;
+      try {
+        const u = g.sideUse(station, dir === 1 ? "L" : "R", track, "in");
+        return !u || !u.cross;
+      } catch {
+        return true;
+      }
+    };
+
     const prevFree = P.freeReceivingTrack;
     P.freeReceivingTrack = function (station, trainId) {
       const t = this.trains.find((x) => x.id === trainId);
@@ -69,9 +84,17 @@
       const szabad = STATIONS[station].tracks.filter(hasznalhato);
       if (!szabad.length) return null;
       if (ic(t)) return szabad.includes(atmeno) ? atmeno : szabad[0];
+      const dir = t?.dir ?? 1;
+      const sajatOldal = szabad.filter((x) => nemKeresztez(station, dir, x));
       if (t && t.menetrendi && this.icVarhato(station, t)) {
-        const mellek = szabad.filter((x) => x !== atmeno);
-        if (mellek.length) return mellek[0]; // félretesszük, hogy az IC kitérő nélkül haladhasson
+        // félretesszük, hogy az IC kitérő nélkül haladhasson – lehetőleg a saját oldalán
+        const mellek = (sajatOldal.length ? sajatOldal : szabad).filter((x) => x !== atmeno);
+        if (mellek.length) return mellek[0];
+      }
+      if (sajatOldal.length) {
+        const elsobb = prevFree.call(this, station, trainId);
+        if (elsobb && sajatOldal.includes(elsobb)) return elsobb;
+        return sajatOldal.includes(atmeno) ? atmeno : sajatOldal[0];
       }
       return prevFree.call(this, station, trainId);
     };

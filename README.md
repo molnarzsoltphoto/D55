@@ -1,5 +1,25 @@
 # VONAL 40 – 0.9: kétvágányú pult, sorrendtartó engedély, kiágazások
 
+**0.19.0 – párhuzamos vágányutak az állomásvégeken:**
+
+A kétvágányú állomásvégek párhuzamos kezelése (bejárat az egyik, kijárat a másik vonali vágányon) a 0.9 óta a kódban volt, de a gyakorlatban nem érvényesült: 12 órás futásban **7811** vágányút-elutasítás jött „az állomásvég másik vágányút miatt lezárt” okkal, és mindössze **6** párhuzamos vágányút született. Az ok a fogadóvágány-választás volt: ha a vonat a saját menetirányához nem tartozó állomási vágányt kapta, a vágányútja átment az átmenő kitérőn, és az egész állomásvéget megfogta.
+
+Mostantól a gép az állomáson is a jobb oldali közlekedést követi: a Pécs felé tartó vonat a vonal alsó, a Budapest felé tartó a felső oldalához tartozó vágányt kapja, ha van szabad (az InterCity továbbra is az átmenő fővágányt). Ezzel a vágányút nem érinti az átmenő kitérőt, és a másik irány egyszerre kezelhető. Eredmény ugyanazon a futáson: **132** párhuzamos vágányút (Kelenföld 46, Háros 31, Érd 20, Nagytétény 17, Százhalombatta 14), az elutasítások 7811 → **4693**.
+
+A geometriát a kiágazási modul ajánlja ki (`globalThis.LBgeom`), így a fogadóvágány-választás ugyanazt a váltókörzet-modellt használja, mint a vágányút-ütközés vizsgálata.
+
+**Az éjszakai három lépés együtt, 24 órás gépi futáson:**
+
+| | 0.16 | 0.17 behozás | 0.18 menetvonalak | 0.19 párhuzamos vágányutak |
+|---|---|---|---|---|
+| IC átlagkésés | 9,0 perc | 6,7 | 2,0 | **1,6** |
+| IC legnagyobb késés | 52 perc | 45 | 30 | **18** |
+| IC a 10 perces célon belül | 32/52 | 38/52 | 49/52 | **50/52** |
+| személyvonat átlagkésés | 5,3 perc | 6,2 | 2,9 | **2,9** |
+| személyvonat a 15 perces célon belül | 562/627 | 555/629 | 600/629 | **599/629** |
+| tehervonat átlagkésés | 39,4 perc | 33,6 | 29,5 | **28,1** |
+| „kijárati jelző nem szabad” | 451 perc | 2357 | 350 | **222** |
+
 **0.18.0 – tehervonati menetvonalak:**
 
 A tehervonat eddig véletlenül keletkezett a vonal végpontjain, menetrend nélkül, és 60–100 km/h-val indult el a személyforgalom közé – gördülő útlezárás volt. Mostantól menetvonalat kap (`patch/v40-tehermenetvonal.js`): a személyvonati menetrendből (REAL_TIMETABLE + a kiágazási menetek fővonali szakaszai) felépül egy állomásközönkénti foglaltsági tábla, és a vonat ebben keres rést, 3 perces elő- és utóidővel. Amennyit a keresztezések megkívánnak, annyit vár az állomásokon – a várakozás a vonat tervébe kerül, így a motor magától betartja. Ha egy szakaszon 35 percen belül nincs rés, a menetvonal addig tart, ameddig eljut. A számítás 60 km/h-val dolgozik, a tényleges sebesség ennél csak nagyobb lehet, ezért ütközést nem okoz. Nem hiteles: ez nem a valódi tehervonati menetrend, hanem a személyforgalom réseibe illesztett, számított menetvonal.

@@ -147,6 +147,9 @@
         ln = sd.lanes.find((l) => l.y === (kind === "in" ? sd.in : sd.out)) || sd.lanes[0];
       return { lane: ln.lane, cross: !nat || nat.lane !== ln.lane };
     }
+    // A vágányút-geometria a többi modul számára is kell (fogadóvágány-választás), ezért kiajánljuk.
+    globalThis.LBgeom = { sideUse, naturalLane, lineSides, geom };
+
     const prevSetRoute = P.setRoute;
     P.setRoute = function (station, start, goal) {
       const d = this.describeRoute(station, start, goal);
