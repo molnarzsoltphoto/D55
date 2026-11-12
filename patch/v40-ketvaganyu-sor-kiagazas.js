@@ -201,8 +201,8 @@
     const LINE_BRANCHES = [
       // double: irányonként külön vágány (egyszerre egy be- és egy kimenő vonat lehet a szakaszon); ownThroat: saját bejárati vágányok, nem zárja a fővonali állomásvéget
       { id: "kelenfold-keleti", station: 1, side: "L", name: "Budapest-Keleti felé", double: true, ownThroat: true, travel: 3 },
-      { id: "kelenfold-gyor", station: 1, side: "R", name: "Győr felé", double: true, ownThroat: true, travel: 3 },
-      { id: "kelenfold-szfvar", station: 1, side: "R", vert: "down", name: "Székesfehérvár felé (Érd alsón át)", double: true, ownThroat: true, travel: 3 },
+      { id: "kelenfold-szfvar", station: 1, side: "R", vert: "up", name: "Székesfehérvár felé (30a, Érd alsón át)", double: true, ownThroat: true, travel: 3 },
+      { id: "kelenfold-gyor", station: 1, side: "R", vert: "down", name: "Győr felé", double: true, ownThroat: true, travel: 3 },
       // a 30a Érd felsőt érintő vonatai itt hagyják el a modellt (Tárnok felé), saját váltókörzettel
       { id: "erdfelso-szfvar", station: 8, side: "R", vert: "down", name: "Székesfehérvár felé", double: true, ownThroat: true, travel: 3 },
       { id: "pszabolcs-dunaujvaros", station: 14, side: "R", vert: "up", name: "Dunaújváros felé" },
@@ -628,6 +628,13 @@
       return y <= m ? upper : lower;
     }
     routePoints = function (s, side, track, kind, lane) {
+      // ahol a helyszínrajzból kiolvasott nyomvonal megvan, azon megy a vágányút és a vonat
+      const valos = globalThis.VALOS_PULT?.ut(s, side, track, kind);
+      if (valos) {
+        if (kind !== "out") return valos;
+        const v = valos.slice().reverse(), veg = v[v.length - 1];
+        return v.concat([[side === "L" ? -80 : 1280, veg[1]]]); // a kijáró vonat elhagyja a képet
+      }
       const g = geom(s),
         y = g.y(track),
         m = g.mid,
@@ -709,7 +716,8 @@
         H = g.h + 64,
         blink = Math.floor(Date.now() / 450) % 2 ? 1 : 0.25,
         cnt = sim.d55Counters || { oldas: 0, megallj: 0 };
-      let html = `<svg viewBox="0 0 1200 ${H}" role="img" aria-label="D55-jellegű kezelhető játékpult"><defs><pattern id="tiles" width="34" height="34" patternUnits="userSpaceOnUse"><rect width="34" height="34" fill="#bdd7ae"/><path d="M0 33.5H34M33.5 0V34" stroke="#8eac82" stroke-width="1" fill="none"/><path d="M0 .5H34M.5 0V34" stroke="#d6ead0" stroke-width="1" fill="none"/></pattern></defs><rect width="1200" height="${H}" fill="url(#tiles)"/><text x="23" y="27" fill="#132a19" font-size="19">${esc(STATIONS[s].name.toUpperCase())} · D55-JELLEGŰ JÁTÉKPULT</text><text x="23" y="49" fill="#1a3221" font-size="12">Kétütemű kezelés · első és második lezárás · sematikus vágányrajz</text>`;
+      const VPfej = globalThis.VALOS_PULT?.van(s);
+      let html = `<svg viewBox="0 0 1200 ${H}" role="img" aria-label="D55-jellegű kezelhető játékpult"><defs><pattern id="tiles" width="34" height="34" patternUnits="userSpaceOnUse"><rect width="34" height="34" fill="#bdd7ae"/><path d="M0 33.5H34M33.5 0V34" stroke="#8eac82" stroke-width="1" fill="none"/><path d="M0 .5H34M.5 0V34" stroke="#d6ead0" stroke-width="1" fill="none"/></pattern></defs><rect width="1200" height="${H}" fill="url(#tiles)"/><text x="23" y="27" fill="#132a19" font-size="19">${esc(STATIONS[s].name.toUpperCase())} · D55-JELLEGŰ JÁTÉKPULT</text><text x="23" y="49" fill="#1a3221" font-size="12">Kétütemű kezelés · első és második lezárás · ${VPfej ? "vágányrajz a helyszínrajzból" : "sematikus vágányrajz"}</text>`;
       // számlálók (a valódi pulton a rendkívüli kezeléseket számláló regisztrálja)
       [["Oldás", cnt.oldas], ["Megállj", cnt.megallj]].forEach(([label, n], i) => {
         const x = 530 + i * 76;
@@ -720,6 +728,10 @@
         bands += band(d);
         lights += lamps(d, c || D55.off);
       };
+      // Ahol a helyszínrajzból kiolvasott rajz megvan, a teljes valódi vágányhálózat
+      // kerül a pultra; a sematikus V alakú torok helyett az igazi váltókörzet.
+      const VP = globalThis.VALOS_PULT, valos = VP?.van(s);
+      if (valos) for (const vonal of VP.halozat(s)) trk("M" + vonal.map((p) => p.join(",")).join("L"));
       // vonali csatlakozások
       for (const side of ["L", "R"]) {
         const sd = sides[side];
@@ -730,14 +742,19 @@
         const sx = side === "L" ? 215 : 985, ex = side === "L" ? 15 : 1185;
         for (const ln of sd.lanes) {
           const occupied = sd.sec.lanes[ln.lane].blocks.some((b) => b.owner);
-          trk(`M${ex} ${ln.y}H${sx}`, occupied ? D55.occ : null);
+          // valódi rajznál a vonali vágány a rajz szélén lévő tényleges véghez csatlakozik
+          const vp = valos ? VP.vegSzerep(s, side, ln.direction) : null;
+          const ly = vp ? vp[1] : ln.y;
+          trk(`M${ex} ${ly}H${vp ? vp[0] : sx}`, occupied ? D55.occ : null);
           const lx = side === "L" ? 40 : 1160;
-          html += `<text x="${lx}" y="${ln.y - 11}" text-anchor="middle" fill="#17321e" font-size="10">${ln.lane + 1}. vg ${ln.direction === 1 ? "→" : "←"}</text>`;
+          html += `<text x="${lx}" y="${ly - 11}" text-anchor="middle" fill="#17321e" font-size="10">${ln.lane + 1}. vg ${ln.direction === 1 ? "→" : "←"}</text>`;
         }
-        // átmenő kitérő (X) a két vonali vágány közt
-        const [y0, y1] = sd.lanes.map((l) => l.y), [xa, xb] = XO[side];
-        trk(`M${xa} ${y0}L${xb} ${y1}`);
-        trk(`M${xa} ${y1}L${xb} ${y0}`);
+        // átmenő kitérő (X) a két vonali vágány közt — a valódi rajzon már benne van
+        if (!valos) {
+          const [y0, y1] = sd.lanes.map((l) => l.y), [xa, xb] = XO[side];
+          trk(`M${xa} ${y0}L${xb} ${y1}`);
+          trk(`M${xa} ${y1}L${xb} ${y0}`);
+        }
       }
       g.tracks.forEach((tr) => {
         const y = g.y(tr),
@@ -748,13 +765,18 @@
           queue = sim.queueAhead(s, tr, "__nobody__").length;
         const nL = naturalLane(sides.L, y, g.mid), nR = naturalLane(sides.R, y, g.mid),
           yL = nL ? nL.y : g.mid, yR = nR ? nR.y : g.mid;
-        trk(`M215 ${yL}L350 ${y}`);
-        trk(`M850 ${y}L985 ${yR}`);
-        trk(`M350 ${y}H850`, closed ? D55.closed : occ ? D55.occ : null);
+        const vv = valos ? VP.vagany(s, tr) : null;
+        if (!vv) {
+          trk(`M215 ${yL}L350 ${y}`);
+          trk(`M850 ${y}L985 ${yR}`);
+        }
+        trk(vv ? `M${vv.x0} ${vv.y}H${vv.x1}` : `M350 ${y}H850`,
+            closed ? D55.closed : occ ? D55.occ : null);
         // váltóállás-visszajelentés: rövid világító szakasz a váltónál
         if (selectedL) lights += lamps(`M215 ${yL}L${215 + 48} ${yL + (y - yL) * (48 / 135)}`, D55.pos);
         if (selectedR) lights += lamps(`M985 ${yR}L${985 - 48} ${yR + (y - yR) * (48 / 135)}`, D55.pos);
-        html += `<text x="600" y="${y + 24}" text-anchor="middle" fill="#17321e" font-size="12">${tr}. vágány${closed ? " · LEZÁRVA" : ""}${queue > 1 ? ` · sorban: ${queue}` : ""}</text>`;
+        const kx = vv ? (vv.x0 + vv.x1) / 2 : 600;
+        html += `<text x="${kx}" y="${y + 24}" text-anchor="middle" fill="#17321e" font-size="12">${tr}. vágány${closed ? " · LEZÁRVA" : ""}${queue > 1 ? ` · sorban: ${queue}` : ""}</text>`;
       });
       Object.values(sim.routes)
         .filter((r) => r.at === s)
@@ -799,7 +821,12 @@
       html += bands + lights + stubTrains;
       g.tracks.forEach((tr) => {
         const y = g.y(tr);
-        html += svgSignal(s, "KL-" + tr, 380, y, -1) + svgSignal(s, "KR-" + tr, 820, y, 1) + svgButton("KL-" + tr, 412, y) + svgButton("KR-" + tr, 788, y);
+        // a kijárati jelző az állomáson áll, nem kint a vonalon: a váltókörzet belső széléhez
+        const vt = valos ? VP.vagany(s, tr) : null, tk = valos ? VP.torok(s) : null,
+          xL = vt ? Math.max(vt.x0, tk ? tk[0] + 18 : vt.x0) + 30 : 380,
+          xR = vt ? Math.min(vt.x1, tk ? tk[1] - 18 : vt.x1) - 30 : 820;
+        html += svgSignal(s, "KL-" + tr, xL, y, -1) + svgSignal(s, "KR-" + tr, xR, y, 1) +
+                svgButton("KL-" + tr, xL + 32, y) + svgButton("KR-" + tr, xR - 32, y);
       });
       html +=
         svgSignal(s, "A", 145, sides.L.in, 1) +
@@ -814,7 +841,7 @@
         if (t.lineBranch && t.phase !== "parked") return; // a kiágazási menetek a csonkon mozognak
         if (t.phase === "parked" && t.at === s) {
           const y = g.y(t.track);
-          html += tag(t, 600, y - 21);
+          html += tag(t, (valos && VP.vagany(s, t.track)) ? (VP.vagany(s, t.track).x0 + VP.vagany(s, t.track).x1) / 2 : 600, y - 21);
         } else if (t.phase === "leaving" && t.at === s) {
           const pts = routePoints(s, t.dir === 1 ? "R" : "L", t.track, "out", p?.lane);
           html += litTrain(t, pts, 35 + t.progress * (length(pts) + 55));

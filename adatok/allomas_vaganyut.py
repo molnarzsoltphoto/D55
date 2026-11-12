@@ -19,9 +19,13 @@ import json
 import pathlib
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "allomasrajz"))
+import pult
+
 GYOKER = pathlib.Path(__file__).resolve().parent
 FORRAS = GYOKER / "allomasok"
 KIMENET = GYOKER / "allomas-vaganyut.json"
+RAJZ = GYOKER / "allomas-rajz.json"
 SZEREPEK = ("L.be", "L.ki", "R.be", "R.ki")
 
 
@@ -51,10 +55,14 @@ def allomas(konfig_ut):
 
 
 def main():
-    tabla = {}
+    tabla, rajzok = {}, {}
     for konfig in sorted(FORRAS.glob("_*.konfig.json")):
         k, adat, hiany = allomas(konfig)
         tabla[str(k["sim"])] = adat
+        halo = konfig.with_name(konfig.name.replace(".konfig.", ".halo."))
+        nyers = konfig.with_name(konfig.name.replace(".konfig.", ".nyers."))
+        if halo.exists():
+            rajzok[str(k["sim"])] = pult.keszit(str(halo), str(nyers), str(konfig))
         db = {sz: len(v) for sz, v in adat["utak"].items()}
         print(f"{k['allomas']:<18} (sim {k['sim']:>2}): " +
               ", ".join(f"{sz} {n} vágány" for sz, n in db.items()))
@@ -63,7 +71,9 @@ def main():
     if not tabla:
         print("nincs feldolgozható állomás", file=sys.stderr)
     KIMENET.write_text(json.dumps(tabla, ensure_ascii=False, indent=1), encoding="utf-8")
-    print(f"{KIMENET.name}: {len(tabla)} állomás")
+    RAJZ.write_text(json.dumps(rajzok, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    print(f"{KIMENET.name}: {len(tabla)} állomás; "
+          f"{RAJZ.name}: {len(rajzok)} rajz, {RAJZ.stat().st_size // 1024} kB")
 
 
 if __name__ == "__main__":

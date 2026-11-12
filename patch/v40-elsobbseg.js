@@ -79,7 +79,13 @@
           }
         }
         const perm = this.permissions[p.id];
-        if (perm && perm.section === sec.id) return { vonat: p, kiadott: true };
+        if (perm && perm.section === sec.id) {
+          // Azonos irányban nem várjuk meg, amíg a másik vonat kiér az állomásközből:
+          // a követési távolságot a térközök tartják (az utolérést a fenti vizsgálat
+          // már kizárta). Ellenirányban az állomásköz foglalt marad.
+          if (!ellenirany) continue;
+          return { vonat: p, kiadott: true };
+        }
         // menetvonallal közlekedő tehervonatot nem tartunk vissza előre: a menetvonala eleve a
         // személyforgalom résébe illeszkedik
         if (t.menetvonal) continue;
