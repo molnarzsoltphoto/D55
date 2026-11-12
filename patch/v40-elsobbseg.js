@@ -80,6 +80,9 @@
         }
         const perm = this.permissions[p.id];
         if (perm && perm.section === sec.id) return { vonat: p, kiadott: true };
+        // menetvonallal közlekedő tehervonatot nem tartunk vissza előre: a menetvonala eleve a
+        // személyforgalom résébe illeszkedik
+        if (t.menetvonal) continue;
         if (p.phase !== "parked" || !vegek.includes(p.at)) continue;
         const kov = this.next(p);
         if (kov == null || !vegek.includes(kov) || kov === p.at) continue;

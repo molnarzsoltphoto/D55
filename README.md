@@ -1,5 +1,22 @@
 # VONAL 40 – 0.9: kétvágányú pult, sorrendtartó engedély, kiágazások
 
+**0.18.0 – tehervonati menetvonalak:**
+
+A tehervonat eddig véletlenül keletkezett a vonal végpontjain, menetrend nélkül, és 60–100 km/h-val indult el a személyforgalom közé – gördülő útlezárás volt. Mostantól menetvonalat kap (`patch/v40-tehermenetvonal.js`): a személyvonati menetrendből (REAL_TIMETABLE + a kiágazási menetek fővonali szakaszai) felépül egy állomásközönkénti foglaltsági tábla, és a vonat ebben keres rést, 3 perces elő- és utóidővel. Amennyit a keresztezések megkívánnak, annyit vár az állomásokon – a várakozás a vonat tervébe kerül, így a motor magától betartja. Ha egy szakaszon 35 percen belül nincs rés, a menetvonal addig tart, ameddig eljut. A számítás 60 km/h-val dolgozik, a tényleges sebesség ennél csak nagyobb lehet, ezért ütközést nem okoz. Nem hiteles: ez nem a valódi tehervonati menetrend, hanem a személyforgalom réseibe illesztett, számított menetvonal.
+
+Mivel a teher már eleve résbe illeszkedik, az elsőbbségi szabály nem tartja vissza előre, csak ha a szakaszon kiadott engedély van.
+
+24 órás gépi futás, a két korábbi lépéssel együtt:
+
+| | 0.16 | 0.17 (késésbehozás) | 0.18 (menetvonalak) |
+|---|---|---|---|
+| IC átlagkésés | 9,0 perc | 6,7 | **2,0** |
+| IC a 10 perces célon belül | 32/52 | 38/52 | **49/52** |
+| személyvonat átlagkésés | 5,3 perc | 6,2 | **2,9** |
+| személyvonat a 15 perces célon belül | 562/627 | 555/629 | **600/629** |
+| tehervonat átlagkésés | 39,4 perc | 33,6 | 29,5 |
+| „kijárati jelző nem szabad" | 451 perc | 2357 | **350** |
+
 **0.17.0 – késésbehozás a menetrendi ráhagyásból:**
 
 A vonat az állomásközbe belépéskor a saját késésével eltolt menetrendre került (`segmentOffset`), ezért mindig pontosan a tervezett menetidővel futott: a késés **csak nőni tudott**. Mérés a változás előtt: a késve induló vonatok 360 szakaszából mindössze 17-en hoztak be időt, 100-on tovább vesztettek. Mostantól amíg a vonat késik, szakaszonként a tervezett menetidő 12%-át behozhatja (`BEHOZAS_ARANY`), a pálya engedte sebességig – ez a füzetben lévő menetrendi ráhagyás megfelelője. Utána: 238 szakaszból 155-ön hoz be időt, 5-ön veszít.

@@ -14,4 +14,5 @@ put('v40-ellenirany',fs.readFileSync('patch/v40-ellenirany.js','utf8'));
 put('v40-elsobbseg',fs.readFileSync('patch/v40-elsobbseg.js','utf8'));
 put('v40-elkerulo',fs.readFileSync('patch/v40-elkerulo.js','utf8'));
 put('v40-forgalom',fs.readFileSync('patch/v40-forgalom.js','utf8'));
+put('v40-tehermenetvonal',fs.readFileSync('patch/v40-tehermenetvonal.js','utf8'));
 fs.writeFileSync('index.html',s);console.log('index.html frissítve,', s.length, 'bájt');"
