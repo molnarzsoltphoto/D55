@@ -1,0 +1,27 @@
+{
+ "allomas": "Nagylók",
+ "sim": 17,
+ "megjegyzes": "Gépi javaslat a helyszínrajzból; a rajz megjelenítéséhez elég, a vágányút-táblához ellenőrizni kell.",
+ "vagany": {
+  "I": "3",
+  "II": "1",
+  "III": "2"
+ },
+ "atmeno": {
+  "1": "I",
+  "-1": "II"
+ },
+ "bejarat": {
+  "L.be": "bal|26",
+  "L.ki": "bal|26",
+  "R.be": "jobb|27",
+  "R.ki": "jobb|27"
+ },
+ "_vaganynevek": {
+  "I": "I. fő Hh=720",
+  "II": "",
+  "III": ""
+ },
+ "_budapest": "bal",
+ "vaganyut": false
+}

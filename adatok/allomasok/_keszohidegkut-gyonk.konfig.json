@@ -1,0 +1,31 @@
+{
+ "allomas": "Keszőhidegkút-Gyönk",
+ "sim": 25,
+ "megjegyzes": "Gépi javaslat a helyszínrajzból; a rajz megjelenítéséhez elég, a vágányút-táblához ellenőrizni kell.",
+ "vagany": {
+  "I": "1",
+  "II": "2",
+  "III": "3",
+  "IV": "4",
+  "V": "5"
+ },
+ "atmeno": {
+  "1": "III",
+  "-1": "III"
+ },
+ "bejarat": {
+  "L.be": "bal|81",
+  "L.ki": "bal|55",
+  "R.be": "jobb|56",
+  "R.ki": "jobb|56"
+ },
+ "_vaganynevek": {
+  "I": "",
+  "II": "",
+  "III": "",
+  "IV": "",
+  "V": ""
+ },
+ "_budapest": "bal",
+ "vaganyut": false
+}

@@ -1,0 +1,29 @@
+{
+ "allomas": "Ercsi",
+ "sim": 12,
+ "megjegyzes": "Gépi javaslat a helyszínrajzból; a rajz megjelenítéséhez elég, a vágányút-táblához ellenőrizni kell.",
+ "vagany": {
+  "I": "3",
+  "II": "4",
+  "III": "5",
+  "IV": "6"
+ },
+ "atmeno": {
+  "1": "II",
+  "-1": "II"
+ },
+ "bejarat": {
+  "L.be": "bal|43",
+  "L.ki": "bal|31",
+  "R.be": "jobb|32",
+  "R.ki": "jobb|44"
+ },
+ "_vaganynevek": {
+  "I": "18. mellék \"K\"",
+  "II": "21. mellék \"K\"",
+  "III": "",
+  "IV": ""
+ },
+ "_budapest": "bal",
+ "vaganyut": false
+}

@@ -91,22 +91,26 @@ def kozep(N, edges, comp):
     return min(legjobb, key=lambda x: abs(x - kozepe)) if legjobb else kozepe
 
 
-def bejaratok(N, comp, dirs, margo=26.0):
-    """Vonali végek: a szélső x-en álló zsákvégek. A csonka vágányok beljebb érnek véget."""
-    xs = [N[i]["x"] for i in comp]
-    xmin, xmax = min(xs), max(xs)
+def bejaratok(N, comp, dirs, tracks=(), margo=30.0):
+    """Vonali végek: a vágányok magasságsávjában a legszélső zsákvégek. A csonka
+    vágányok beljebb érnek véget, a lapszéli rajzi törmelék pedig kilóg a sávból."""
+    ty = [t["y"] for t in tracks]
+    sav = (min(ty) - 45, max(ty) + 45) if ty else (-1e9, 1e9)
+    jelolt = [i for i in comp if N[i]["deg"] == 1 and sav[0] <= N[i]["y"] <= sav[1]]
+    if not jelolt:
+        return []
+    xmin = min(N[i]["x"] for i in jelolt)
+    xmax = max(N[i]["x"] for i in jelolt)
     ki = []
-    for i in comp:
-        if N[i]["deg"] != 1:
-            continue
+    for i in jelolt:
         oldal = ("bal" if N[i]["x"] <= xmin + margo else
                  "jobb" if N[i]["x"] >= xmax - margo else None)
         if not oldal:
             continue
         nev = None
-        jelolt = [d for d in dirs if d["fele"] == oldal]
-        if jelolt:
-            nev = min(jelolt, key=lambda d: abs(d["y"] - N[i]["y"]))["irany"]
+        d = [x for x in dirs if x["fele"] == oldal]
+        if d:
+            nev = min(d, key=lambda x: abs(x["y"] - N[i]["y"]))["irany"]
         ki.append({"irany": nev or oldal, "fele": oldal, "node": i,
                    "x": N[i]["x"], "y": N[i]["y"]})
     ki.sort(key=lambda e: (e["fele"], e["y"]))
@@ -145,13 +149,22 @@ def valtonevek(N, comp, swlab, valtotabla):
     nodes = sorted((i for i in comp if N[i]["deg"] >= 3), key=lambda i: N[i]["x"])
     labs = [s for s in swlab if s["t"] in valtotabla]
     if not nodes or not labs:
-        return {}, []
+        return {}, [], True
 
     def szelv(t):
         a, b = valtotabla[t].split("+")
         return int(a) * 100 + int(b)
 
-    labs.sort(key=lambda s: szelv(s["t"]))
+    # A szelvényszám a váltók fizikai sorrendje. Hogy a rajz melyik végén nő, nem tudjuk
+    # előre (a helyszínrajzok tájolása nem egységes), ezért mindkét irányt megpróbáljuk,
+    # és az illeszkedőbbet fogadjuk el. Ez egyben megmondja, merre van a vonal eleje.
+    jobbra_no = _illesztes(N, nodes, labs, szelv, True)[0] <= _illesztes(N, nodes, labs, szelv, False)[0]
+    _, nev, parositatlan = _illesztes(N, nodes, labs, szelv, jobbra_no)
+    return nev, parositatlan, jobbra_no
+
+
+def _illesztes(N, nodes, labs, szelv, novekvo):
+    labs = sorted(labs, key=lambda s: szelv(s["t"]) * (1 if novekvo else -1))
     n, m = len(labs), len(nodes)
     INF = float("inf")
     SKIP_L, SKIP_N, MAXD = 60.0, 18.0, 34.0
@@ -182,7 +195,7 @@ def valtonevek(N, comp, swlab, valtotabla):
         elif k == "l":
             parositatlan.append(labs[pi]["t"])
         i, j = pi, pj
-    return nev, parositatlan
+    return D[n][m], nev, parositatlan
 
 
 def seg_tav(p, a, b):
@@ -225,9 +238,9 @@ def main(halo, cimke, out):
     for k, t in enumerate(tracks):
         t["sorszam"] = k + 1
     vagany_nevek(N, edges, tracks, c.get("vaganyok", []))
-    nev, parositatlan = valtonevek(N, comp, c.get("valtoszamok", []), c.get("valtotabla", {}))
+    nev, parositatlan, jobbra_no = valtonevek(N, comp, c.get("valtoszamok", []), c.get("valtotabla", {}))
     SW = lambda i: nev.get(i, f"#{i}")
-    ents = bejaratok(N, comp, c.get("iranyok", []))
+    ents = bejaratok(N, comp, c.get("iranyok", []), tracks)
 
     print(f"Metszővonal x={x0:.1f}; {len(tracks)} vágány, {len(ents)} vonali vég, "
           f"{sum(1 for i in comp if N[i]['deg'] >= 3)} elágazás "
@@ -250,7 +263,9 @@ def main(halo, cimke, out):
     if parositatlan:
         print("   nem párosított váltószám:", " ".join(parositatlan))
 
-    json.dump({"kozepvonal": round(x0, 1),
+    print(f"   szelvényszám iránya: {'balról jobbra nő' if jobbra_no else 'jobbról balra nő'}"
+          f"  → Budapest felőli vég: {'bal' if jobbra_no else 'jobb'}")
+    json.dump({"kozepvonal": round(x0, 1), "budapest": "bal" if jobbra_no else "jobb",
                "vaganyok": [{k: v for k, v in t.items() if k != "edge"} | {"edge": list(t["edge"])}
                             for t in tracks],
                "bejaratok": ents,

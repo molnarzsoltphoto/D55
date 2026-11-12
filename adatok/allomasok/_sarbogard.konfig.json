@@ -1,0 +1,35 @@
+{
+ "allomas": "Sárbogárd",
+ "sim": 18,
+ "megjegyzes": "Gépi javaslat a helyszínrajzból; a rajz megjelenítéséhez elég, a vágányút-táblához ellenőrizni kell.",
+ "vagany": {
+  "VIII": "5",
+  "VII": "6",
+  "VI": "7",
+  "IV": "9",
+  "III": "10",
+  "II": "11",
+  "V": "3"
+ },
+ "atmeno": {
+  "1": "VI",
+  "-1": "IV"
+ },
+ "bejarat": {
+  "L.be": "bal|75",
+  "L.ki": "bal|62",
+  "R.be": "jobb|76",
+  "R.ki": "jobb|76"
+ },
+ "_vaganynevek": {
+  "VIII": "VII. fő Hh = 665",
+  "VII": "VI. fő Hh = 725",
+  "VI": "V. fő Hh =",
+  "IV": "III. fő Hh =",
+  "III": "II. fő Hh =",
+  "II": "I. mellék",
+  "V": "IX. fő Hh = 600"
+ },
+ "_budapest": "bal",
+ "vaganyut": false
+}

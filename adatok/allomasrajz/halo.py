@@ -3,11 +3,33 @@ import sys, json, math, collections
 import cv2, numpy as np
 from skimage.morphology import skeletonize
 
+
+def iranyitott_zaras(mask, hossz=31):
+    """A rajzi jelek (kisiklasztósaru, útátjáró, szelvényjel) kivágnak a vágányból.
+    Vonalirányú zárással betömjük: a vonal mentén összeér, keresztben nem, így a
+    párhuzamos vágányok nem folynak össze."""
+    ki = mask.copy()
+    for fok in range(0, 180, 15):
+        ker = np.zeros((hossz, hossz), np.uint8)
+        cv2.line(ker, (0, hossz // 2), (hossz - 1, hossz // 2), 1, 1)
+        M = cv2.getRotationMatrix2D((hossz / 2 - 0.5, hossz / 2 - 0.5), fok, 1.0)
+        ker = (cv2.warpAffine(ker.astype(np.float32), M, (hossz, hossz)) > 0.3).astype(np.uint8)
+        if ker.sum() < 3:
+            continue
+        ki = np.maximum(ki, cv2.morphologyEx(mask, cv2.MORPH_CLOSE, ker))
+    return ki
+
 def mask_tracks(png, r=5, minpx=250):
-    im = cv2.imread(png, cv2.IMREAD_GRAYSCALE)
-    bw = (im < 128).astype(np.uint8)
+    """A vágány a rajz legvastagabb vonala. A sötét pixelek mellett az erősen színeseket
+    is beveszi: a helyszínrajzokon színes jelölések (szigetelt sín, besorolás) fekszenek rá
+    a vágányra, és világos szürkeértékük miatt lyukat ütnének bele."""
+    szin = cv2.imread(png, cv2.IMREAD_COLOR)
+    im = cv2.cvtColor(szin, cv2.COLOR_BGR2GRAY)
+    telitettseg = szin.max(axis=2).astype(np.int16) - szin.min(axis=2).astype(np.int16)
+    bw = ((im < 128) | ((telitettseg > 60) & (im < 205))).astype(np.uint8)
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*r+1, 2*r+1))
     op = cv2.morphologyEx(bw, cv2.MORPH_OPEN, k)
+    op = iranyitott_zaras(op)
     n, lab, stats, _ = cv2.connectedComponentsWithStats(op, 8)
     keep = np.zeros_like(op)
     for i in range(1, n):
@@ -41,8 +63,14 @@ def simplify(pts, eps=2.0):
     if worst <= eps: return [a, b]
     return simplify(pts[:wi+1], eps)[:-1] + simplify(pts[wi:], eps)
 
-def skeleton_graph(keep, merge=12, minedge=14):
+def skeleton_graph(keep, merge=12, minedge=14, mincsontvaz=45):
     sk = skeletonize(keep.astype(bool)).astype(np.uint8)
+    # a rajzi jelek (szelvényjel, jelzőkép) rövid csonkjai hamis zsákvégeket adnának,
+    # és elvinnék a hézagáthidalást a valódi vonalfolytatás elől
+    n, lab, stats, _ = cv2.connectedComponentsWithStats(sk, 8)
+    for i in range(1, n):
+        if stats[i, cv2.CC_STAT_AREA] < mincsontvaz:
+            sk[lab == i] = 0
     nb = cv2.filter2D(sk, -1, np.ones((3,3), np.uint8), borderType=cv2.BORDER_CONSTANT) - sk
     nb = nb * sk
     nodemask = ((nb != 2) & (sk > 0)).astype(np.uint8)
@@ -134,10 +162,14 @@ def bridge(pts, edges, maxgap=95.0, maxang=18.0):
             d = math.dist(pts[i], pts[j])
             if d > maxgap or d < 1: continue
             v = math.atan2(pts[j][1]-pts[i][1], pts[j][0]-pts[i][0])
-            if dang(tip[i][0], v) > math.radians(maxang): continue
-            if deg.get(j, 0) == 1 and dang(tip[j][0], v + math.pi) > math.radians(maxang): continue
-            cands.append((d, i, j))
-    for d, i, j in sorted(cands):
+            da = dang(tip[i][0], v)
+            if da > math.radians(maxang): continue
+            db = dang(tip[j][0], v + math.pi) if deg.get(j, 0) == 1 else 0.0
+            if db > math.radians(maxang): continue
+            # az irányhűség fontosabb, mint a közelség: a valódi vonalfolytatást ne vigye el
+            # egy közelebbi, de félreálló csonk
+            cands.append((max(da, db), d, i, j))
+    for _, d, i, j in sorted(cands):
         if i in used: continue
         if any((e["a"], e["b"]) in ((i, j), (j, i)) for e in edges): continue
         used.add(i)

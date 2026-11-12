@@ -1,0 +1,43 @@
+{
+ "allomas": "Budapest-Kelenföld",
+ "sim": 1,
+ "megjegyzes": "Gépi javaslat a helyszínrajzból; a rajz megjelenítéséhez elég, a vágányút-táblához ellenőrizni kell.",
+ "vagany": {
+  "II": "3",
+  "XII": "11",
+  "XIII": "12",
+  "I": "2",
+  "III": "4",
+  "IV": "5",
+  "V": "6",
+  "VI": "7",
+  "VII": "8",
+  "VIII": "9",
+  "IX": "10"
+ },
+ "atmeno": {
+  "1": "V",
+  "-1": "III"
+ },
+ "bejarat": {
+  "L.be": "bal|177",
+  "L.ki": "bal|46",
+  "R.be": "jobb|101",
+  "R.ki": "jobb|140"
+ },
+ "_vaganynevek": {
+  "II": "02. fő Hh= 481m",
+  "XII": "12. fő Hh= 907m",
+  "XIII": "13. fő Hh= 950m",
+  "I": "",
+  "III": "",
+  "IV": "",
+  "V": "",
+  "VI": "",
+  "VII": "",
+  "VIII": "",
+  "IX": ""
+ },
+ "_budapest": "bal",
+ "vaganyut": false
+}

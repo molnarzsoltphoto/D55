@@ -1,0 +1,29 @@
+{
+ "allomas": "Szabadegyháza",
+ "sim": 15,
+ "megjegyzes": "Gépi javaslat a helyszínrajzból; a rajz megjelenítéséhez elég, a vágányút-táblához ellenőrizni kell.",
+ "vagany": {
+  "IV": "4",
+  "II": "6",
+  "I": "1",
+  "III": "2"
+ },
+ "atmeno": {
+  "1": "IV",
+  "-1": "IV"
+ },
+ "bejarat": {
+  "L.be": "bal|39",
+  "L.ki": "bal|39",
+  "R.be": "jobb|40",
+  "R.ki": "jobb|40"
+ },
+ "_vaganynevek": {
+  "IV": "IV. fő Hh=621",
+  "II": "II. fő Hh=652",
+  "I": "",
+  "III": ""
+ },
+ "_budapest": "bal",
+ "vaganyut": false
+}

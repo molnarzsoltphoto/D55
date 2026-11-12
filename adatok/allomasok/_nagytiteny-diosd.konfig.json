@@ -1,0 +1,27 @@
+{
+ "allomas": "Nagytétény-Diósd",
+ "sim": 6,
+ "megjegyzes": "Gépi javaslat a helyszínrajzból; a rajz megjelenítéséhez elég, a vágányút-táblához ellenőrizni kell.",
+ "vagany": {
+  "II": "3",
+  "III": "5",
+  "I": "4"
+ },
+ "atmeno": {
+  "1": "III",
+  "-1": "II"
+ },
+ "bejarat": {
+  "L.be": "bal|40",
+  "L.ki": "bal|27",
+  "R.be": "jobb|22",
+  "R.ki": "jobb|39"
+ },
+ "_vaganynevek": {
+  "II": "02. fő bal átmenő",
+  "III": "03. fő jobb átmenő",
+  "I": ""
+ },
+ "_budapest": "bal",
+ "vaganyut": false
+}

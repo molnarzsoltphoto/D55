@@ -10,6 +10,7 @@ A rajz x és y irányban külön skálázódik: az állomás a valóságban nagy
 távolságra kell kerülniük egymástól. A topológia ettől nem sérül.
 """
 import json
+import math
 import sys
 
 
@@ -44,9 +45,15 @@ def keszit(halo, allomas, konfig):
     for u in a["utak"].values():
         for v in u.values():
             hasznalt.update(v["ut"])
-    pontok = [(N[i]["x"], N[i]["y"]) for i in N]
-    x0 = min(p[0] for p in pontok); x1 = max(p[0] for p in pontok)
-    y0 = min(p[1] for p in pontok); y1 = max(p[1] for p in pontok)
+    # A befoglaló csak az állomásból jöhet: a rajz kerete, táblázatai és a lapszéli
+    # jelmagyarázat is a maszkba kerülhet, és szétfeszítené a méretezést.
+    tx = [N[i]["x"] for i in hasznalt] or [N[i]["x"] for i in N]
+    ty = [t["y"] for t in a["vaganyok"]] or [N[i]["y"] for i in N]
+    ty += [N[int(e["node"])]["y"] for e in a["bejaratok"]]
+    x0, x1 = min(tx), max(tx)
+    y0, y1 = min(ty), max(ty)
+    mx, my = (x1 - x0) * 0.03 + 1, (y1 - y0) * 0.12 + 4
+    x0 -= mx; x1 += mx; y0 -= my; y1 += my
 
     db = len(k["vagany"])
     # a pult magassága a modellvágányokból adódna, de a valódi rajzon több vágány van,
@@ -55,13 +62,41 @@ def keszit(halo, allomas, konfig):
     BX0, BX1, BY0, BY1 = 88.0, 1112.0, 96.0, H - 72.0
     sx = (BX1 - BX0) / max(x1 - x0, 1e-6)
     sy = (BY1 - BY0) / max(y1 - y0, 1e-6)
-    T = lambda p: [round(BX0 + (p[0] - x0) * sx, 1), round(BY0 + (p[1] - y0) * sy, 1)]
+    T = lambda p: [round(BX0 + (p[0] - x0) * sx), round(BY0 + (p[1] - y0) * sy)]
+
+    def egyszerusit(pts, eps=1.6):
+        """Ramer–Douglas–Peucker: a pultkoordinátákban már felesleges a részletesség."""
+        if len(pts) < 3:
+            return pts
+        a, b = pts[0], pts[-1]
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        L = math.hypot(dx, dy)
+        if L < 1e-6:
+            return [a, b]
+        rossz, hol = 0.0, 0
+        for i, q in enumerate(pts[1:-1], 1):
+            d = abs(dy * (q[0] - a[0]) - dx * (q[1] - a[1])) / L
+            if d > rossz:
+                rossz, hol = d, i
+        if rossz <= eps:
+            return [a, b]
+        return egyszerusit(pts[:hol + 1], eps)[:-1] + egyszerusit(pts[hol:], eps)
+
+    def ut(pts):
+        q = egyszerusit([list(x) for x in pts])
+        ki = [q[0]]
+        for x in q[1:]:
+            if x != ki[-1]:
+                ki.append(x)
+        return ki
 
     halozat = []
     for (a_, b_), poly in el.items():
         if a_ > b_:
             continue
-        halozat.append([T(p) for p in poly])
+        v = ut([T(p) for p in poly])
+        if len(v) >= 2 and (abs(v[0][0] - v[-1][0]) + abs(v[0][1] - v[-1][1])) >= 5:
+            halozat.append(v)
 
     # modellvágány → a rajzi vágány vonala és középpontja
     sorszam_edge = {str(t["sorszam"]): tuple(t["edge"]) for t in a["vaganyok"]}
@@ -74,7 +109,7 @@ def keszit(halo, allomas, konfig):
         poly = el.get(e) or el.get((e[1], e[0]))
         if not poly:
             continue
-        pts = [T(p) for p in poly]
+        pts = ut([T(p) for p in poly])
         yy = round(T((0, sorszam_y[str(sorsz)]))[1], 1)
         # a vágány teljes hossza: a hozzá tartozó magasságon futó vízszintes szakaszok
         xs = []
@@ -93,7 +128,7 @@ def keszit(halo, allomas, konfig):
             u = forras.get(str(sorsz))
             if not u:
                 continue
-            utak[f"{szerep}|{modell}"] = [T(p) for p in ut_polilin(el, u["ut"])]
+            utak[f"{szerep}|{modell}"] = ut([T(p) for p in ut_polilin(el, u["ut"])])
 
     vegek = {}
     for szerep, kulcs in k["bejarat"].items():

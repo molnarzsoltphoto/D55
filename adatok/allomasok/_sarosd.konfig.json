@@ -1,0 +1,29 @@
+{
+ "allomas": "Sárosd",
+ "sim": 16,
+ "megjegyzes": "Gépi javaslat a helyszínrajzból; a rajz megjelenítéséhez elég, a vágányút-táblához ellenőrizni kell.",
+ "vagany": {
+  "I": "4",
+  "II": "1",
+  "III": "2",
+  "IV": "3"
+ },
+ "atmeno": {
+  "1": "I",
+  "-1": "III"
+ },
+ "bejarat": {
+  "L.be": "bal|31",
+  "L.ki": "bal|31",
+  "R.be": "jobb|32",
+  "R.ki": "jobb|32"
+ },
+ "_vaganynevek": {
+  "I": "I. mellék Hh=720",
+  "II": "",
+  "III": "",
+  "IV": ""
+ },
+ "_budapest": "bal",
+ "vaganyut": false
+}

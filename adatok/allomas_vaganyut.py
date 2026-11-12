@@ -58,16 +58,18 @@ def main():
     tabla, rajzok = {}, {}
     for konfig in sorted(FORRAS.glob("_*.konfig.json")):
         k, adat, hiany = allomas(konfig)
-        tabla[str(k["sim"])] = adat
+        # a vágányút-tábla csak ellenőrzött állomásra kerül be: egy hamis vágányút rosszabb,
+        # mint egy hiányzó (ott marad a régi, szigorúbb szabály). A rajz mindenhol készül.
+        if k.get("vaganyut"):
+            tabla[str(k["sim"])] = adat
         halo = konfig.with_name(konfig.name.replace(".konfig.", ".halo."))
         nyers = konfig.with_name(konfig.name.replace(".konfig.", ".nyers."))
         if halo.exists():
             rajzok[str(k["sim"])] = pult.keszit(str(halo), str(nyers), str(konfig))
-        db = {sz: len(v) for sz, v in adat["utak"].items()}
-        print(f"{k['allomas']:<18} (sim {k['sim']:>2}): " +
-              ", ".join(f"{sz} {n} vágány" for sz, n in db.items()))
-        if hiany:
-            print(f"    nincs levezetett vágányút: {', '.join(hiany)}")
+        db = sum(len(v) for v in adat["utak"].values())
+        print(f"{k['allomas']:<20} (sim {k['sim']:>2}): rajz {len(rajzok.get(str(k['sim']), {}).get('halozat', []))} vonal, "
+              f"{len(k['vagany'])} vágány, {db} vágányút"
+              + ("  [vágányút-tábla aktív]" if k.get("vaganyut") else ""))
     if not tabla:
         print("nincs feldolgozható állomás", file=sys.stderr)
     KIMENET.write_text(json.dumps(tabla, ensure_ascii=False, indent=1), encoding="utf-8")

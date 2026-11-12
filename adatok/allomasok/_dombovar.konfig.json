@@ -1,0 +1,27 @@
+{
+ "allomas": "Dombóvár",
+ "sim": 33,
+ "megjegyzes": "Gépi javaslat a helyszínrajzból; a rajz megjelenítéséhez elég, a vágányút-táblához ellenőrizni kell.",
+ "vagany": {
+  "V": "4",
+  "IV": "5",
+  "I": "6"
+ },
+ "atmeno": {
+  "1": "I",
+  "-1": "I"
+ },
+ "bejarat": {
+  "L.be": "bal|36",
+  "L.ki": "bal|21",
+  "R.be": "jobb|58",
+  "R.ki": "jobb|58"
+ },
+ "_vaganynevek": {
+  "V": "V. fő Hh= 550",
+  "IV": "IV. fő Hh=340/240",
+  "I": ""
+ },
+ "_budapest": "bal",
+ "vaganyut": false
+}

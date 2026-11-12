@@ -1,0 +1,25 @@
+{
+ "allomas": "Kurd",
+ "sim": 31,
+ "megjegyzes": "Gépi javaslat a helyszínrajzból; a rajz megjelenítéséhez elég, a vágányút-táblához ellenőrizni kell.",
+ "vagany": {
+  "I": "1",
+  "II": "2"
+ },
+ "atmeno": {
+  "1": "I",
+  "-1": "I"
+ },
+ "bejarat": {
+  "L.be": "bal|22",
+  "L.ki": "bal|22",
+  "R.be": "jobb|23",
+  "R.ki": "jobb|23"
+ },
+ "_vaganynevek": {
+  "I": "",
+  "II": ""
+ },
+ "_budapest": "bal",
+ "vaganyut": false
+}

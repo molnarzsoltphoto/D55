@@ -1,0 +1,26 @@
+{
+ "allomas": "Mecsekalja-Cserkút",
+ "sim": 45,
+ "megjegyzes": "Gépi javaslat a helyszínrajzból; a rajz megjelenítéséhez elég, a vágányút-táblához ellenőrizni kell.",
+ "vagany": {
+  "I": "4",
+  "II": "5",
+  "III": "6"
+ },
+ "atmeno": {
+  "1": "III",
+  "-1": "III"
+ },
+ "bejarat": {
+  "L.be": "bal|66",
+  "L.ki": "bal|66",
+  "R.be": "jobb|32"
+ },
+ "_vaganynevek": {
+  "I": "",
+  "II": "VI. fő Hh=480",
+  "III": "V. fő Hh=530"
+ },
+ "_budapest": "bal",
+ "vaganyut": false
+}

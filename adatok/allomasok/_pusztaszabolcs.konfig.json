@@ -1,13 +1,35 @@
 {
  "allomas": "Pusztaszabolcs",
  "sim": 14,
- "megjegyzes": "A rajzi vágányok fentről lefelé sorszámozva; a modell 7 vágánya a valódi 01a, 02, 03, 04, 05a, 06, 07 fővágányra. Az R (Szabadegyháza) végről a 06-07 nem érhető el közvetlenül, az L (Iváncsa) végről a 01a-02 nem: ezekre a régi, szigorúbb szabály marad. Az adonyi és zichyújfalui vonal külön ág, nem a fővonal.",
- "vagany": {"I": "16", "II": "15", "III": "14", "IV": "13", "V": "11", "VI": "10", "VII": "9"},
- "atmeno": {"1": "III", "-1": "IV"},
+ "megjegyzes": "Gépi javaslat a helyszínrajzból; a rajz megjelenítéséhez elég, a vágányút-táblához ellenőrizni kell.",
+ "vagany": {
+  "VI": "9",
+  "IV": "12",
+  "III": "13",
+  "II": "14",
+  "I": "15",
+  "V": "10",
+  "VII": "11"
+ },
+ "atmeno": {
+  "1": "III",
+  "-1": "IV"
+ },
  "bejarat": {
-  "L.be": "bal|80",
-  "L.ki": "bal|60",
-  "R.be": "jobb|76",
-  "R.ki": "jobb|76"
- }
+  "L.be": "bal|97",
+  "L.ki": "bal|74",
+  "R.be": "jobb|92",
+  "R.ki": "jobb|106"
+ },
+ "_vaganynevek": {
+  "VI": "06.fő \"F\" Hh=774m",
+  "IV": "04.fő bal átmenő \"E\"",
+  "III": "03.fő jobb átmenő",
+  "II": "02.fő \"E\" Hh=176m",
+  "I": "01a.fő jobb megelőző",
+  "V": "",
+  "VII": ""
+ },
+ "_budapest": "bal",
+ "vaganyut": true
 }

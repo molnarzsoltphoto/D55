@@ -1,0 +1,29 @@
+{
+ "allomas": "Godisa",
+ "sim": 37,
+ "megjegyzes": "Gépi javaslat a helyszínrajzból; a rajz megjelenítéséhez elég, a vágányút-táblához ellenőrizni kell.",
+ "vagany": {
+  "III": "3",
+  "IV": "4",
+  "V": "5",
+  "II": "1",
+  "VI": "2"
+ },
+ "atmeno": {
+  "1": "III"
+ },
+ "bejarat": {
+  "L.be": "bal|48",
+  "L.ki": "bal|48",
+  "R.ki": "jobb|49"
+ },
+ "_vaganynevek": {
+  "III": "II. fő Hh=695",
+  "IV": "III. fő Hh=718",
+  "V": "IV. fő Hh=686",
+  "II": "",
+  "VI": ""
+ },
+ "_budapest": "bal",
+ "vaganyut": false
+}
