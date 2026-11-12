@@ -200,7 +200,9 @@
     // ───────────────────────────────────────────────────────────────────
     const LINE_BRANCHES = [
       // double: irányonként külön vágány (egyszerre egy be- és egy kimenő vonat lehet a szakaszon); ownThroat: saját bejárati vágányok, nem zárja a fővonali állomásvéget
-      { id: "kelenfold-keleti", station: 1, side: "L", name: "Budapest-Keleti felé", double: true, ownThroat: true, travel: 3 },
+      { id: "kelenfold-keleti", station: 1, side: "L", name: "Budapest-Keleti felé", double: true, ownThroat: true, travel: 3,
+        // Kelenföldön a Keleti felé csak a 7–15. vágányról vezet vágányút
+        tracks: ["VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV"] },
       { id: "kelenfold-szfvar", station: 1, side: "R", vert: "up", name: "Székesfehérvár felé (30a, Érd alsón át)", double: true, ownThroat: true, travel: 3 },
       { id: "kelenfold-gyor", station: 1, side: "R", vert: "down", name: "Győr felé", double: true, ownThroat: true, travel: 3 },
       // a 30a Érd felsőt érintő vonatai itt hagyják el a modellt (Tárnok felé), saját váltókörzettel
@@ -250,8 +252,14 @@
         const def = this.byId(branchId);
         if (!def) return { ok: false, msg: "Ismeretlen kiágazás." };
         if (s.trains.filter((t) => t.lineBranch && !t.finished).length >= 12) return { ok: false, msg: "Legfeljebb 12 kiágazási kézi menet lehet aktív." };
-        track = track && track !== "__through__" && STATIONS[def.station].tracks.includes(track) ? track : s.free(def.station);
-        if (!track) return { ok: false, msg: `${STATIONS[def.station].name}: nincs szabad fogadóvágány.` };
+        const hasznalhato = def.tracks
+          ? STATIONS[def.station].tracks.filter((x) => def.tracks.includes(x))
+          : STATIONS[def.station].tracks;
+        track = track && track !== "__through__" && hasznalhato.includes(track)
+          ? track
+          : hasznalhato.find((x) => !s.closed[`${def.station}:${x}`] && !s.busy(def.station, x));
+        if (!track)
+          return { ok: false, msg: `${STATIONS[def.station].name}: nincs szabad fogadóvágány${def.tracks ? " a " + def.tracks[0] + "–" + def.tracks[def.tracks.length - 1] + ". vágányok közt" : ""}.` };
         if (s.closed[`${def.station}:${track}`]) return { ok: false, msg: "A választott vágány lezárva." };
         s.lineBranchSerial = (s.lineBranchSerial || 0) + 1;
         const id = "KIAG-" + String(s.lineBranchSerial).padStart(3, "0");
@@ -321,10 +329,18 @@
           return { ok: false, msg: "Ebben az állapotban nem engedélyezhető." };
         if (t.lineBranch.direction === "in") {
           if (b.reserved && b.reserved.id !== id) return { ok: false, msg: `${def.name}: másik érkező vonat fogadása folyamatban.` };
-          if (s.closed[`${def.station}:${t.track}`] || s.busy(def.station, t.track, id)) {
-            // menetrendi vonatnál a gép másik szabad vágányt keres; kézi menetnél a kezelő dönt
-            const alt = t.menetrendi ? STATIONS[def.station].tracks.find((tr) => !s.closed[`${def.station}:${tr}`] && !s.busy(def.station, tr, id)) : null;
-            if (!alt) return { ok: false, msg: `${STATIONS[def.station].name}, ${t.track}. vágány foglalt vagy lezárt.` };
+          // Az ághoz tartozó vágánylista (pl. Kelenföldön a Keleti felé csak 7–15):
+          // ha a vonat máshol áll, át kell tenni, nem elutasítani — különben beragad.
+          const jo = (tr) => !def.tracks || def.tracks.includes(tr);
+          const rossz = !jo(t.track) || s.closed[`${def.station}:${t.track}`] || s.busy(def.station, t.track, id);
+          if (rossz) {
+            const alt = STATIONS[def.station].tracks.find(
+              (tr) => jo(tr) && !s.closed[`${def.station}:${tr}`] && !s.busy(def.station, tr, id)
+            );
+            if (!alt)
+              return { ok: false, msg: jo(t.track)
+                ? `${STATIONS[def.station].name}, ${t.track}. vágány foglalt vagy lezárt.`
+                : `${def.name}: csak a ${def.tracks[0]}–${def.tracks[def.tracks.length - 1]}. vágányról vezet vágányút, és ott nincs szabad vágány.` };
             t.track = alt;
           }
           b.reserved = { id, track: t.track };

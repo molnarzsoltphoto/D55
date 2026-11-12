@@ -3274,7 +3274,9 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
     // ───────────────────────────────────────────────────────────────────
     const LINE_BRANCHES = [
       // double: irányonként külön vágány (egyszerre egy be- és egy kimenő vonat lehet a szakaszon); ownThroat: saját bejárati vágányok, nem zárja a fővonali állomásvéget
-      { id: "kelenfold-keleti", station: 1, side: "L", name: "Budapest-Keleti felé", double: true, ownThroat: true, travel: 3 },
+      { id: "kelenfold-keleti", station: 1, side: "L", name: "Budapest-Keleti felé", double: true, ownThroat: true, travel: 3,
+        // Kelenföldön a Keleti felé csak a 7–15. vágányról vezet vágányút
+        tracks: ["VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV"] },
       { id: "kelenfold-szfvar", station: 1, side: "R", vert: "up", name: "Székesfehérvár felé (30a, Érd alsón át)", double: true, ownThroat: true, travel: 3 },
       { id: "kelenfold-gyor", station: 1, side: "R", vert: "down", name: "Győr felé", double: true, ownThroat: true, travel: 3 },
       // a 30a Érd felsőt érintő vonatai itt hagyják el a modellt (Tárnok felé), saját váltókörzettel
@@ -3324,8 +3326,14 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
         const def = this.byId(branchId);
         if (!def) return { ok: false, msg: "Ismeretlen kiágazás." };
         if (s.trains.filter((t) => t.lineBranch && !t.finished).length >= 12) return { ok: false, msg: "Legfeljebb 12 kiágazási kézi menet lehet aktív." };
-        track = track && track !== "__through__" && STATIONS[def.station].tracks.includes(track) ? track : s.free(def.station);
-        if (!track) return { ok: false, msg: `${STATIONS[def.station].name}: nincs szabad fogadóvágány.` };
+        const hasznalhato = def.tracks
+          ? STATIONS[def.station].tracks.filter((x) => def.tracks.includes(x))
+          : STATIONS[def.station].tracks;
+        track = track && track !== "__through__" && hasznalhato.includes(track)
+          ? track
+          : hasznalhato.find((x) => !s.closed[`${def.station}:${x}`] && !s.busy(def.station, x));
+        if (!track)
+          return { ok: false, msg: `${STATIONS[def.station].name}: nincs szabad fogadóvágány${def.tracks ? " a " + def.tracks[0] + "–" + def.tracks[def.tracks.length - 1] + ". vágányok közt" : ""}.` };
         if (s.closed[`${def.station}:${track}`]) return { ok: false, msg: "A választott vágány lezárva." };
         s.lineBranchSerial = (s.lineBranchSerial || 0) + 1;
         const id = "KIAG-" + String(s.lineBranchSerial).padStart(3, "0");
@@ -3395,10 +3403,18 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
           return { ok: false, msg: "Ebben az állapotban nem engedélyezhető." };
         if (t.lineBranch.direction === "in") {
           if (b.reserved && b.reserved.id !== id) return { ok: false, msg: `${def.name}: másik érkező vonat fogadása folyamatban.` };
-          if (s.closed[`${def.station}:${t.track}`] || s.busy(def.station, t.track, id)) {
-            // menetrendi vonatnál a gép másik szabad vágányt keres; kézi menetnél a kezelő dönt
-            const alt = t.menetrendi ? STATIONS[def.station].tracks.find((tr) => !s.closed[`${def.station}:${tr}`] && !s.busy(def.station, tr, id)) : null;
-            if (!alt) return { ok: false, msg: `${STATIONS[def.station].name}, ${t.track}. vágány foglalt vagy lezárt.` };
+          // Az ághoz tartozó vágánylista (pl. Kelenföldön a Keleti felé csak 7–15):
+          // ha a vonat máshol áll, át kell tenni, nem elutasítani — különben beragad.
+          const jo = (tr) => !def.tracks || def.tracks.includes(tr);
+          const rossz = !jo(t.track) || s.closed[`${def.station}:${t.track}`] || s.busy(def.station, t.track, id);
+          if (rossz) {
+            const alt = STATIONS[def.station].tracks.find(
+              (tr) => jo(tr) && !s.closed[`${def.station}:${tr}`] && !s.busy(def.station, tr, id)
+            );
+            if (!alt)
+              return { ok: false, msg: jo(t.track)
+                ? `${STATIONS[def.station].name}, ${t.track}. vágány foglalt vagy lezárt.`
+                : `${def.name}: csak a ${def.tracks[0]}–${def.tracks[def.tracks.length - 1]}. vágányról vezet vágányút, és ott nincs szabad vágány.` };
             t.track = alt;
           }
           b.reserved = { id, track: t.track };
@@ -4861,6 +4877,103 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
       t.maxSpeed = SZAMITASI_SEBESSEG;
       t.endStation = mv.at(-1).station;
       return t;
+    };
+
+    return true;
+  }
+
+  if (!install()) {
+    let tries = 0;
+    const timer = setInterval(() => {
+      if (install() || ++tries > 60) clearInterval(timer);
+    }, 50);
+  }
+})();
+
+</script>
+<script id="v40-vaganykorlatozas">
+(() => {
+  "use strict";
+  // VONAL 40 · 0.24 — állomási vágánykorlátozás.
+  //
+  // Nem minden vágányról vezet vágányút minden irányba. Kelenföldön a Déli felé csak az
+  // 1–8. vágányról van kijárat (a Keleti felé a 7–15-ről, azt a kiágazás saját
+  // `tracks` listája intézi). Eddig a gép bármelyik vágányt kioszthatta, és a játékos
+  // is állíthatott olyan vágányutat, ami a valóságban nincs.
+  //
+  // A korlátozás a fővonali menetekre vonatkozik: a kiágazási menetek a saját águkhoz
+  // tartozó listát követik.
+  const KORLAT = {
+    1: { L: ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"] }, // Budapest-Kelenföld, Déli felé
+  };
+
+  function install() {
+    if (typeof Simulation === "undefined" || typeof sim === "undefined") return false;
+    const P = Simulation.prototype;
+    if (P._v40Korlat) return true;
+    if (typeof P.freeReceivingTrack !== "function" || typeof P.setRoute !== "function") return false;
+    P._v40Korlat = true;
+
+    const lista = (station, side) => KORLAT[station]?.[side] || null;
+
+    // A fővonali vonat Kelenföldön mindig a Déli felőli oldalt is használja (onnan jön
+    // vagy arra megy), tehát a fogadóvágányának az L-listában kell lennie.
+    // Melyik vágányokat használhatja ez a vonat ezen az állomáson? A kiágazási menet a
+    // saját ágának listáját (Keleti felé 7–15), a fővonali a Déli felőli listát (1–8).
+    const sajatLista = (station, train) => {
+      const def = train?.lineBranch && window.LineBranches?.byId?.(train.lineBranch.id);
+      if (def) return def.station === station && def.tracks ? def.tracks : null;
+      // a korlátozás a Déli felőli vágányútra vonatkozik, nem az állásra: aki Pécs felől
+      // jön és itt végállomásozik, sosem használja a Déli torkot, állhat bármelyik vágányon
+      if (train) {
+        const hasznalja =
+          (train.dir === 1 && train.startStation !== station) ||
+          (train.dir === -1 && train.endStation !== station);
+        if (!hasznalja) return null;
+      }
+      return lista(station, "L");
+    };
+
+    P.vaganyEngedett = function (station, track, train) {
+      const l = sajatLista(station, train);
+      return !l || l.includes(track);
+    };
+
+    const szabad = (s, station, track, id) =>
+      !s.closed[`${station}:${track}`] &&
+      !s.busy(station, track, id) &&
+      !Object.values(s.routes).some((r) => r.at === station && r.track === track && r.train !== id);
+
+    const prevFree = P.freeReceivingTrack;
+    P.freeReceivingTrack = function (station, trainId) {
+      const t = this.trains.find((x) => x.id === trainId);
+      const eng = sajatLista(station, t);
+      const valasz = prevFree.call(this, station, trainId);
+      if (!eng && KORLAT[station] && t) {
+        // itt végállomásozó vagy innen induló menet: a fővonal vágányait hagyjuk szabadon
+        const l = lista(station, "L") || [];
+        const kulso = STATIONS[station].tracks.filter((x) => !l.includes(x) && szabad(this, station, x, trainId));
+        if (kulso.length) return kulso[0];
+      }
+      if (!eng || (valasz && eng.includes(valasz))) return valasz;
+      // a saját sávjából kapjon vágányt: így a Keleti felé tartó menetek nem szorítják
+      // ki a Déli felőli forgalmat a 1–8-ról, és fordítva
+      const jo = STATIONS[station].tracks.filter((x) => eng.includes(x) && szabad(this, station, x, trainId));
+      return jo.length ? jo[0] : null;
+    };
+
+    const prevSet = P.setRoute;
+    P.setRoute = function (station, start, goal) {
+      const l = KORLAT[station];
+      if (l && typeof this.describeRoute === "function") {
+        let r = null;
+        try { r = this.describeRoute(station, start, goal); } catch (e) { r = null; }
+        const eng = r && lista(station, r.side);
+        if (r && eng && !eng.includes(r.track)) {
+          return { ok: false, msg: `${STATIONS[station].name}: a ${r.track}. vágányról nincs vágányút erre az irányra (csak ${eng[0]}–${eng[eng.length - 1]}).` };
+        }
+      }
+      return prevSet.call(this, station, start, goal);
     };
 
     return true;
