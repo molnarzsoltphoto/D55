@@ -1,5 +1,11 @@
 # VONAL 40 – 0.9: kétvágányú pult, sorrendtartó engedély, kiágazások
 
+**0.17.0 – késésbehozás a menetrendi ráhagyásból:**
+
+A vonat az állomásközbe belépéskor a saját késésével eltolt menetrendre került (`segmentOffset`), ezért mindig pontosan a tervezett menetidővel futott: a késés **csak nőni tudott**. Mérés a változás előtt: a késve induló vonatok 360 szakaszából mindössze 17-en hoztak be időt, 100-on tovább vesztettek. Mostantól amíg a vonat késik, szakaszonként a tervezett menetidő 12%-át behozhatja (`BEHOZAS_ARANY`), a pálya engedte sebességig – ez a füzetben lévő menetrendi ráhagyás megfelelője. Utána: 238 szakaszból 155-ön hoz be időt, 5-ön veszít.
+
+24 órás gépi futás hatása: **IC átlagkésés 9,0 → 6,7 perc** (medián 0,8; 52-ből 38 a 10 perces célon belül, korábban 32), tehervonat 39,4 → 33,6 perc, személyvonat 5,3 → 6,2 perc (a gyorsabb futás több vonatot hoz egyszerre az állomásokra, ezért a kijáratra várás nőtt). Egy vonat sem ragadt be.
+
 **0.16.0 – vágányúti időzítés, valós idejű be- és kijárat, elsőbbségi rend (IC > személy > teher):**
 
 - **Bejárati vágányút csak az utolsó térközben** (`patch/v40-forgalom.js`). Eddig a gép a bejárati vágányutat már az engedély kiadásakor beállította, ezért a fogadó állomás váltókörzete a közeledő vonat teljes útja alatt zárva volt – Pusztaszabolcson a kijáró vonat megvárta a még állomásközben lévő vonat beérkezését. Mostantól az állomásközben a foglaltság csak a térközökre terjed ki, a bejárati vágányutat a gép akkor állítja, amikor a vonat az utolsó térközbe ér. Hatása 24 órás futásban: a „kijárati jelző nem szabad” miatti állás 3180 percről 451-re esett.

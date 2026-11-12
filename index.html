@@ -152,6 +152,11 @@ const MIN_DWELL=1;
 // tervezett indulás idejére esik, a behaladás pedig a tervezett érkezésre fejeződik be, így a
 // látható mozgás nem tolja el a menetrendet (1x sebességnél valós idejű).
 const KIJARAT=.25,KOZELITES=.1,BEJARAT=.35;
+// Késésbehozás: a vonat az állomásközbe belépéskor a saját késésével eltolt menetrendre kerül
+// (segmentOffset), ezért alapesetben pontosan a tervezett menetidővel fut, és a késését soha nem tudja
+// behozni. A menetrendi ráhagyást úgy adjuk vissza, hogy amíg késik, szakaszonként a tervezett menetidő
+// ennyi részét behozhatja – a tényleges gyorsulást a pálya engedte sebesség (maxSpeed) korlátozza.
+const BEHOZAS_ARANY=.12;
 function timetableDeparture(now,plan){
  // A füzetben nem szereplő (csak számított) ponton nincs megállás: a vonat áthalad. A menetrendi
  // helyzetét a timetableDistance tartja, ezért a tervezett időpontnál korábban nem ér a következő
@@ -170,8 +175,9 @@ function makeTimetablePlan(service,offset){
 }
 function timetableDistance(t,p,time,length){
  const from=t.plan.findIndex(x=>x.station===p.from),to=t.plan.findIndex(x=>x.station===p.to),points=t.plan.slice(from,to+1),offset=t.segmentOffset||0;let previous={time:points[0].dep+offset,distance:0};
- const utolso=points.at(-1);
- for(const point of points.slice(1)){const distance=Math.abs(STATIONS[point.station].km-STATIONS[p.from].km),beja=point===utolso&&t.menetrendi?KOZELITES+BEJARAT:0,arrival=point.arr+offset-beja,departure=point.dep+offset-beja;
+ const utolso=points.at(-1),behozArany=t.menetrendi?BEHOZAS_ARANY:0;
+ for(const point of points.slice(1)){const distance=Math.abs(STATIONS[point.station].km-STATIONS[p.from].km),beja=point===utolso&&t.menetrendi?KOZELITES+BEJARAT:0,
+  behoz=Math.min(offset,behozArany*Math.max(0,point.arr-points[0].dep)),arrival=point.arr+offset-behoz-beja,departure=point.dep+offset-behoz-beja;
   if(time<arrival){const span=arrival-previous.time;return span<=0?distance:previous.distance+(distance-previous.distance)*Math.max(0,(time-previous.time)/span);}if(time<departure)return distance;previous={time:departure,distance};
  }return length;
 }
