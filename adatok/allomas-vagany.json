@@ -1,0 +1,354 @@
+{
+ "39": {
+  "nev": "Abaliget",
+  "vaganyok": [
+   "I",
+   "II",
+   "III"
+  ],
+  "rajzrol": [
+   "III",
+   "II",
+   "I"
+  ]
+ },
+ "44": {
+  "nev": "Bicsérd",
+  "vaganyok": [
+   "I",
+   "II",
+   "III"
+  ],
+  "rajzrol": [
+   "#1",
+   "#2",
+   "I"
+  ]
+ },
+ "41": {
+  "nev": "Bükkösd",
+  "vaganyok": [
+   "I",
+   "II",
+   "III",
+   "IV"
+  ],
+  "rajzrol": [
+   "IV",
+   "III",
+   "II",
+   "I"
+  ]
+ },
+ "32": {
+  "nev": "Döbrököz",
+  "vaganyok": [
+   "I",
+   "II",
+   "III"
+  ],
+  "rajzrol": [
+   "IV",
+   "III"
+  ]
+ },
+ "33": {
+  "nev": "Dombóvár",
+  "vaganyok": [
+   "I",
+   "II",
+   "III",
+   "IV",
+   "V",
+   "VI",
+   "VII",
+   "VIII"
+  ],
+  "rajzrol": [
+   "V",
+   "IV",
+   "III"
+  ]
+ },
+ "12": {
+  "nev": "Ercsi",
+  "vaganyok": [
+   "I",
+   "II",
+   "III",
+   "IV"
+  ],
+  "rajzrol": [
+   "#1",
+   "3"
+  ]
+ },
+ "37": {
+  "nev": "Godisa",
+  "vaganyok": [
+   "I",
+   "II",
+   "III",
+   "IV",
+   "V",
+   "VI"
+  ],
+  "rajzrol": [
+   "I",
+   "II",
+   "III",
+   "IV",
+   "V",
+   "VI"
+  ]
+ },
+ "25": {
+  "nev": "Keszőhidegkút-Gyönk",
+  "vaganyok": [
+   "I",
+   "II",
+   "III",
+   "IV",
+   "V"
+  ],
+  "rajzrol": [
+   "IV",
+   "V"
+  ]
+ },
+ "31": {
+  "nev": "Kurd",
+  "vaganyok": [
+   "I",
+   "II",
+   "III",
+   "IV"
+  ],
+  "rajzrol": [
+   "#1",
+   "#2"
+  ]
+ },
+ "45": {
+  "nev": "Mecsekalja-Cserkút",
+  "vaganyok": [
+   "I",
+   "II",
+   "III",
+   "IV"
+  ],
+  "rajzrol": [
+   "VII",
+   "VI",
+   "V",
+   "IV"
+  ]
+ },
+ "17": {
+  "nev": "Nagylók",
+  "vaganyok": [
+   "I",
+   "II",
+   "III"
+  ],
+  "rajzrol": [
+   "III",
+   "#2",
+   "I"
+  ]
+ },
+ "6": {
+  "nev": "Nagytétény-Diósd",
+  "vaganyok": [
+   "I",
+   "II",
+   "III",
+   "IV"
+  ],
+  "rajzrol": [
+   "1",
+   "4"
+  ]
+ },
+ "46": {
+  "nev": "Pécs",
+  "vaganyok": [
+   "I",
+   "II",
+   "III",
+   "IV",
+   "V",
+   "VI",
+   "VII"
+  ],
+  "rajzrol": [
+   "#1",
+   "#2",
+   "#3",
+   "#4",
+   "#5",
+   "#6",
+   "#7"
+  ]
+ },
+ "23": {
+  "nev": "Pincehely",
+  "vaganyok": [
+   "I",
+   "II",
+   "III",
+   "IV",
+   "V"
+  ],
+  "rajzrol": [
+   "#1"
+  ]
+ },
+ "14": {
+  "nev": "Pusztaszabolcs",
+  "vaganyok": [
+   "I",
+   "II",
+   "III",
+   "IV",
+   "V",
+   "VI",
+   "VII",
+   "VIII",
+   "IX",
+   "X",
+   "XI",
+   "XII"
+  ],
+  "rajzrol": [
+   "10",
+   "9",
+   "8",
+   "7",
+   "6",
+   "5",
+   "5b",
+   "#8",
+   "3",
+   "2",
+   "1",
+   "1b"
+  ]
+ },
+ "18": {
+  "nev": "Sárbogárd",
+  "vaganyok": [
+   "I",
+   "II",
+   "III",
+   "IV",
+   "V",
+   "VI",
+   "VII",
+   "VIII"
+  ],
+  "rajzrol": [
+   "IX",
+   "VIII",
+   "VII",
+   "VI",
+   "V",
+   "IV",
+   "III",
+   "II"
+  ]
+ },
+ "16": {
+  "nev": "Sárosd",
+  "vaganyok": [
+   "I",
+   "II",
+   "III",
+   "IV",
+   "V"
+  ],
+  "rajzrol": [
+   "V",
+   "IV",
+   "III",
+   "#4"
+  ]
+ },
+ "21": {
+  "nev": "Simontornya",
+  "vaganyok": [
+   "I",
+   "II",
+   "III",
+   "IV",
+   "V"
+  ],
+  "rajzrol": [
+   "II",
+   "#2",
+   "IV",
+   "V"
+  ]
+ },
+ "15": {
+  "nev": "Szabadegyháza",
+  "vaganyok": [
+   "I",
+   "II",
+   "III",
+   "IV"
+  ],
+  "rajzrol": [
+   "IV",
+   "#2",
+   "II"
+  ]
+ },
+ "28": {
+  "nev": "Szakály-Hőgyész",
+  "vaganyok": [
+   "I",
+   "II",
+   "III",
+   "IV"
+  ],
+  "rajzrol": [
+   "II",
+   "IV"
+  ]
+ },
+ "43": {
+  "nev": "Szentlőrinc",
+  "vaganyok": [
+   "I",
+   "II",
+   "III",
+   "IV",
+   "V",
+   "VI",
+   "VII"
+  ],
+  "rajzrol": [
+   "VII",
+   "VI",
+   "V",
+   "IV",
+   "#5",
+   "II",
+   "I"
+  ]
+ },
+ "22": {
+  "nev": "Tolnanémedi",
+  "vaganyok": [
+   "I",
+   "II",
+   "III",
+   "IV"
+  ],
+  "rajzrol": [
+   "8",
+   "#2"
+  ]
+ }
+}
