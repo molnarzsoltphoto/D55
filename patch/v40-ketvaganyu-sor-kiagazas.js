@@ -663,11 +663,17 @@
         down = def.vert === "down",
         ys = sd.double ? sd.lanes.map((l) => l.y) : [g.mid],
         outer = down ? Math.max(...ys) : Math.min(...ys),
-        yb = down ? outer + 150 + k * 36 : outer - 44 - k * 36,
-        ly = down ? yb + 24 : yb - 21;
+        koz = def.double ? 26 : 0,
+        yb = down ? outer + 150 + k * (36 + koz) : outer - 44 - k * (36 + koz),
+        // a kétvágányú ág két vágánya egymás alatt, a fővonaltól kifelé
+        yb2 = down ? yb + koz : yb - koz,
+        ly = down ? Math.max(yb, yb2) + 24 : Math.min(yb, yb2) - 21;
+      const alak = (x0, x1, x2, y) => [[x0, y], [x1, y], [x2, outer]];
       return def.side === "L"
-        ? { pts: [[15, yb], [68, yb], [130, outer]], label: [20, ly], anchor: "start", sig: [68, yb] }
-        : { pts: [[1185, yb], [1132, yb], [1070, outer]], label: [1180, ly], anchor: "end", sig: [1132, yb] };
+        ? { pts: alak(15, 68, 130, yb), pts2: koz ? alak(15, 68, 130, yb2) : null,
+            label: [20, ly], anchor: "start", sig: [68, yb], vg: [40, yb, 40, yb2] }
+        : { pts: alak(1185, 1132, 1070, yb), pts2: koz ? alak(1185, 1132, 1070, yb2) : null,
+            label: [1180, ly], anchor: "end", sig: [1132, yb], vg: [1160, yb, 1160, yb2] };
     }
 
     svgSignal = function (s, name, x, y, dir) {
@@ -795,6 +801,14 @@
           b = LB.state(sim, def.id),
           d = "M" + st.pts.map((p) => p.join(",")).join("L");
         trk(d, LB.occupants(b).length ? D55.occ : null);
+        if (st.pts2) {
+          // kétvágányú ág: a második vágány is kirajzolódik, a vonali vágányok jelölésével
+          trk("M" + st.pts2.map((p) => p.join(",")).join("L"));
+          // a felső vágány az 1., ahogy a vonali vágányoknál is
+          const [felso, also] = [st.vg[1], st.vg[3]].sort((a, z) => a - z);
+          html += `<text x="${st.vg[0]}" y="${felso - 7}" text-anchor="middle" fill="#17321e" font-size="10">1. vg</text>` +
+                  `<text x="${st.vg[0]}" y="${also - 7}" text-anchor="middle" fill="#17321e" font-size="10">2. vg</text>`;
+        }
         if (b.route)
           lights += lamps(
             "M" + [st.pts[1], st.pts[2], [def.side === "L" ? 215 : 985, (naturalLane(sides[def.side], g.y(b.route.track), g.mid) || { y: g.mid }).y], [def.side === "L" ? 350 : 850, g.y(b.route.track)], [600, g.y(b.route.track)]].map((p) => p.join(",")).join("L"),
@@ -992,7 +1006,10 @@
         g.setAttribute("data-linebranch", def.id);
         const tx = Math.min(x1, x2),
           w = Math.abs(x2 - x1);
-        g.innerHTML = `<path d="M${x0} 400L${x1} ${yb}H${x2}" stroke="${LB.occupants(b).length ? "#ff747e" : "#e5b45f"}" stroke-width="4" fill="none"/><circle cx="${x1}" cy="${yb + (down ? 11 : -11)}" r="4" fill="${b.route?.clear ? "#66ee95" : "#ff6c77"}"/><rect x="${tx}" y="${down ? yb + 18 : yb - 48}" width="${w}" height="30" rx="3" fill="#213f55" stroke="#e5b45f"/><text x="${tx + w / 2}" y="${down ? yb + 30 : yb - 36}" text-anchor="middle" fill="white" font-size="10">${esc(def.name)}</text><text x="${tx + w / 2}" y="${down ? yb + 42 : yb - 24}" text-anchor="middle" fill="#ffd085" font-size="9">${LB.occupants(b).length ? esc(LB.occupants(b).join(", ")) : "szabad"}${b.route ? " · vágányút " + (b.route.clear ? "Szabad" : "Megállj") : ""}</text>`;
+        const masodik = def.double
+          ? `<path d="M${x0} 400L${x1} ${yb + (down ? 16 : -16)}H${x2}" stroke="${LB.occupants(b).length ? "#ff747e" : "#e5b45f"}" stroke-width="4" fill="none"/>`
+          : "";
+        g.innerHTML = masodik + `<path d="M${x0} 400L${x1} ${yb}H${x2}" stroke="${LB.occupants(b).length ? "#ff747e" : "#e5b45f"}" stroke-width="4" fill="none"/><circle cx="${x1}" cy="${yb + (down ? 11 : -11)}" r="4" fill="${b.route?.clear ? "#66ee95" : "#ff6c77"}"/><rect x="${tx}" y="${down ? yb + 18 : yb - 48}" width="${w}" height="30" rx="3" fill="#213f55" stroke="#e5b45f"/><text x="${tx + w / 2}" y="${down ? yb + 30 : yb - 36}" text-anchor="middle" fill="white" font-size="10">${esc(def.name)}</text><text x="${tx + w / 2}" y="${down ? yb + 42 : yb - 24}" text-anchor="middle" fill="#ffd085" font-size="9">${LB.occupants(b).length ? esc(LB.occupants(b).join(", ")) : "szabad"}${b.route ? " · vágányút " + (b.route.clear ? "Szabad" : "Megállj") : ""}</text>`;
         g.style.cursor = "pointer";
         g.onpointerdown = (ev) => {
           ev.stopPropagation();
