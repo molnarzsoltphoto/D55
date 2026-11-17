@@ -25,6 +25,27 @@ const MAG = Number(process.argv[3] || 1);
   }, MAG);
   await p.goto("file://" + FAJL);
   await p.waitForFunction(() => typeof sim !== "undefined");
+  // A javítóréteg darabjai setInterval-lal próbálkoznak, amíg a globálisok megvannak. A
+  // mérés egyetlen, a főszálat végig blokkoló evaluate-ben fut, úgyhogy közben egyetlen
+  // időzítő sem tud lefutni: ami a mérés indulásáig nem települt, az soha nem is fog, és a
+  // futás csendben más viselkedést mér. Ezért megvárjuk mindegyiket.
+  const JELEK = [
+    "_v40DoubleQueueBranches", "_v40Korlat", "_v40Elsobbseg", "_v40Forgalom",
+    "_v40Ellenirany", "_v40Elkerulo", "_v40EloEngedely", "_v40Tehermenetvonal",
+  ];
+  try {
+    await p.waitForFunction(
+      (jelek) => jelek.every((j) => Simulation.prototype[j]),
+      JELEK,
+      { timeout: 15000 },
+    );
+  } catch (e) {
+    const hiany = await p.evaluate((jelek) => jelek.filter((j) => !Simulation.prototype[j]), JELEK);
+    console.error("nem települt javítóréteg: " + hiany.join(", "));
+    process.exitCode = 1;
+    await b.close();
+    return;
+  }
 
   const r = await p.evaluate(() => {
     sim.auto = true;

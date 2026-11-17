@@ -3726,22 +3726,40 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
     // A vonali vágányból ferde létra ágazik ki, és a vágányok külön-külön, saját váltóval
     // lépnek le róla — nem egy közös pontba fut be mind, ahogy korábban.
     // bazis: a létra alja (a vonali vágányon), csoport: a vágányok a bázistól távolodva.
-    function letra(bazis, csoport, tx, irany, yOf) {
-      const ki = { d: [], ut: new Map() };
+    // vegX: ahol az utolsó fok a vágányra ér; tx: ahol a vágányok egyenes szakasza kezdődik.
+    // A fokok vízszintesét nem itt rajzoljuk: vágányonként egyetlen vízszintes megy a
+    // legkülső váltóig, különben a több bejárat sávjai egymásra feküdnének.
+    function letra(bazis, csoport, vegX, tx, irany, yOf) {
+      const ki = { d: [], ut: new Map(), peel: new Map() };
       if (!csoport.length) return ki;
-      const hossz = (tx - bazis[0]) * irany,
+      const hossz = (vegX - bazis[0]) * irany,
         veg = yOf(csoport[csoport.length - 1]),
         span = Math.abs(veg - bazis[1]) || 1;
-      ki.d.push(`M${bazis[0]} ${bazis[1]}L${tx} ${veg}`);
+      ki.d.push(`M${bazis[0]} ${bazis[1]}L${vegX} ${veg}`);
       for (const t of csoport) {
         const y = yOf(t),
           x = +(bazis[0] + irany * hossz * (Math.abs(y - bazis[1]) / span)).toFixed(1);
-        if (Math.abs(x - tx) > 1) ki.d.push(`M${x} ${y}H${tx}`); // a vágány itt lép le a létráról
+        ki.peel.set(t, x); // itt lép le a vágány a létráról
         ki.ut.set(t, [bazis, [x, y], [tx, y]]);
       }
       return ki;
     }
-    // Egy állomásvég torka: felső és alsó létra, köztük az átmenő (középső) vágány.
+    // Egy bejárat (vonali vágány vagy saját torkú ág) váltósorai: a bázisponttól fölfelé és
+    // lefelé egy-egy létra, és ami épp a bázis magasságában van, az az átmenő vágány.
+    function bejarat(bazis, tracks, vegX, tx, irany, yOf) {
+      const fel = tracks.filter((t) => yOf(t) < bazis[1]).sort((a, b) => yOf(b) - yOf(a)),
+        le = tracks.filter((t) => yOf(t) > bazis[1]).sort((a, b) => yOf(a) - yOf(b)),
+        egyenes = tracks.filter((t) => yOf(t) === bazis[1]),
+        f = letra(bazis, fel, vegX, tx, irany, yOf),
+        l = letra(bazis, le, vegX, tx, irany, yOf),
+        ki = { d: [...f.d, ...l.d], ut: new Map([...f.ut, ...l.ut]), peel: new Map([...f.peel, ...l.peel]) };
+      for (const t of egyenes) {
+        ki.peel.set(t, bazis[0]);
+        ki.ut.set(t, [bazis, [tx, yOf(t)]]);
+      }
+      return ki;
+    }
+    // Egy állomásvég fővonali torka: felső és alsó létra, köztük az átmenő (középső) vágány.
     function torok(s, side, sides) {
       const g = geom(s),
         sd = sides[side],
@@ -3758,19 +3776,21 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
         kozep = elerheto.filter((t) => g.y(t) >= yU && g.y(t) <= yD);
       // az alsó létra egyvágányú oldalon az átmenő vágányról ágazik le, külön váltóval
       const bazisLe = sd.double ? [sx, yD] : [sx + 46 * irany, m],
-        f = letra([sx, yU], fel, tx, irany, g.y),
-        l = letra(bazisLe, le, tx, irany, g.y),
+        f = letra([sx, yU], fel, tx, tx, irany, g.y),
+        l = letra(bazisLe, le, tx, tx, irany, g.y),
         d = [...f.d, ...l.d],
-        ut = new Map([...f.ut, ...l.ut]);
+        ut = new Map([...f.ut, ...l.ut]),
+        peel = new Map([...f.peel, ...l.peel]);
       // A két vonali vágány közé eső (átmenő) vágány a felső vonali vágány folytatása —
       // ugyanaz a hozzárendelés, amit a vágányút-logika (naturalLane) használ, különben a
       // rajz olyan váltót mutatna, amin a gép sosem visz menetet.
       for (const t of kozep) {
         const y = g.y(t), kx = sx + 34 * irany;
-        d.push(`M${sx} ${yU}L${kx} ${y}H${tx}`);
+        d.push(`M${sx} ${yU}L${kx} ${y}`);
+        peel.set(t, kx);
         ut.set(t, [[sx, yU], [kx, y], [tx, y]]);
       }
-      return { d, ut, sx, tx };
+      return { d, ut, peel, sx, tx };
     }
     // egy útvonal első d pixelnyi szakasza sávként (váltóállás-visszajelentéshez)
     const eleje = (pts, d) => {
@@ -3828,7 +3848,7 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
       return darab.map(d).join("");
     }
 
-    function branchStub(s, def, k, sides, torkok) {
+    function branchStub(s, def, k, sides, torkok, sajatIdx) {
       // k: hányadik kiágazás ezen az oldalon és irányban; a külső vonali vágányból ágazik ki, fölfelé vagy lefelé.
       const g = geom(s),
         sd = sides[def.side],
@@ -3837,6 +3857,9 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
         tx = TX[def.side], // innen futnak egyenesen a vágányok
         j = bal ? 1 : -1,
         x0 = bal ? 15 : 1185, // a pult széle
+        // a saját torkú ág váltósorának utolsó foka nem ott ér a vágányra, ahol a fővonalé:
+        // így minden irány külön váltókörzetet kap, nem egy pontban találkoznak
+        vegX = tx - 24 * (sajatIdx + 1) * j,
         ys = sd.double ? sd.lanes.map((l) => l.y) : [g.mid];
       // átmenő kitérő (X) két párhuzamos vágány közt: a két szárny átvágja egymást
       const kitero = (a, b, t1, t2) => {
@@ -3858,13 +3881,9 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
         const pts = [[x0, be], [x1, be], [x2, alja], [fx, alja]],
           pts2 = [[x0, be2], [x1 + koz * j, be2], [x2 + koz * j, alja2], [fx, alja]];
         // saját váltósor: a pár a legközelebbi vágánytól a legtávolabbiig
-        const sajat = letra(
-          [fx, alja],
-          (def.tracks || g.tracks).slice().sort((a, b) => Math.abs(g.y(a) - alja) - Math.abs(g.y(b) - alja)),
-          tx, j, g.y,
-        );
+        const sajat = bejarat([fx, alja], def.tracks || g.tracks, vegX, tx, j, g.y);
         return {
-          pts, pts2, tx,
+          pts, pts2, tx, peel: sajat.peel,
           // a saját létra, és a pár két vágánya közt átmenő kitérő
           letraD: [...sajat.d, ...kitero([pts[1], pts[2]], [pts2[1], pts2[2]], 0.42, 0.5)],
           // a keresztezés helyén lyuk marad a sávban: ott a pár a fővonal alatt megy át
@@ -3885,20 +3904,33 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
         // a kétvágányú ág két vágánya egymás alatt, a fővonaltól kifelé
         yb2 = down ? yb + koz : yb - koz,
         ly = down ? Math.max(yb, yb2) + 24 : Math.min(yb, yb2) - 21,
-        o = (v) => x0 + v * j;
+        o = (v) => x0 + v * j,
+        sajatTorok = def.ownThroat && def.double;
       // a 2. vágány nem a vonali csatlakozásban, hanem külön váltóval tér be az 1.-be
-      const pts = [[x0, yb], [o(55), yb], [o(75), yb], [o(115), outer]];
+      const bx = o(115), // itt kezdődik az ág váltókörzete (saját torokkal), vagy itt éri el a vonali vágányt
+        pts = sajatTorok
+          ? [[x0, yb], [o(55), yb], [o(75), yb], [bx, yb]]
+          : [[x0, yb], [o(55), yb], [o(75), yb], [bx, outer]];
+      // Saját torokkal az ág a saját váltósoráról éri el a vágányokat — nem a fővonal
+      // torkán át. Így a pécsi végen mindhárom irányból minden vágány elérhető, de
+      // mindegyiknek külön váltókörzete van.
+      const sajat = sajatTorok ? bejarat([bx, yb], def.tracks || g.tracks, vegX, tx, j, g.y) : null;
       return {
         pts,
         pts2: koz ? [[x0, yb2], [o(35), yb2], [o(75), yb]] : null,
         tx,
+        peel: sajat?.peel,
+        letraD: sajat?.d,
         label: [bal ? 20 : 1180, ly],
         anchor: bal ? "start" : "end",
         sig: [o(55), yb],
         sigdy: down ? 13 : -13,
         vg: [bal ? 40 : 1160, yb, bal ? 40 : 1160, yb2],
-        // a fővonali torok létráján éri el a vágányt
-        throat: (tr) => [pts[1], pts[2], pts[3], ...(torkok[def.side].ut.get(tr) || [[fx, g.mid], [tx, g.y(tr)]]), [600, g.y(tr)]],
+        throat: (tr) =>
+          sajat
+            ? [pts[1], pts[2], ...(sajat.ut.get(tr) || [[bx, yb], [tx, g.y(tr)]]), [600, g.y(tr)]]
+            // a fővonali torok létráján éri el a vágányt
+            : [pts[1], pts[2], pts[3], ...(torkok[def.side].ut.get(tr) || [[fx, g.mid], [tx, g.y(tr)]]), [600, g.y(tr)]],
       };
     }
 
@@ -3979,9 +4011,36 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
         trk(`M${xa} ${y0}L${xb} ${y1}`);
         trk(`M${xa} ${y1}L${xb} ${y0}`);
       }
-      // állomásvégi váltósorok
+      // Állomásvégi váltósorok. A kiágazások csonkjait is itt számoljuk ki, mert a saját
+      // torkú ágak létrája is a torokhoz tartozik, és a vágányok vízszintesének a legkülső
+      // váltóig kell érnie — bármelyik bejárat állítja is azt.
       const torkok = { L: torok(s, "L", sides), R: torok(s, "R", sides) };
+      const bySide = {}, sajatSzam = {};
+      const stubok = branches.map((def) => {
+        const key = def.side + (def.vert === "down" ? "d" : "u"),
+          k = (bySide[key] = (bySide[key] || 0) + 1) - 1,
+          si = def.ownThroat && def.double ? (sajatSzam[def.side] = (sajatSzam[def.side] || 0) + 1) - 1 : 0;
+        return { def, st: branchStub(s, def, k, sides, torkok, si) };
+      });
       for (const side of ["L", "R"]) for (const d of torkok[side].d) trk(d);
+      for (const { st } of stubok) if (st.letraD) for (const d of st.letraD) trk(d);
+      // vágányonként egyetlen vízszintes a torokban, a legkülső váltóig
+      const peel = { L: new Map(), R: new Map() };
+      const peelFel = (side, m) => {
+        if (!m) return;
+        for (const [t, x] of m) {
+          const volt = peel[side].get(t);
+          peel[side].set(t, volt == null ? x : side === "L" ? Math.min(volt, x) : Math.max(volt, x));
+        }
+      };
+      peelFel("L", torkok.L.peel);
+      peelFel("R", torkok.R.peel);
+      for (const { def, st } of stubok) peelFel(def.side, st.peel);
+      g.tracks.forEach((tr) => {
+        const y = g.y(tr);
+        if (peel.L.has(tr) && peel.L.get(tr) < TX.L) trk(`M${peel.L.get(tr)} ${y}H${TX.L}`);
+        if (peel.R.has(tr) && peel.R.get(tr) > TX.R) trk(`M${TX.R} ${y}H${peel.R.get(tr)}`);
+      });
       g.tracks.forEach((tr) => {
         const y = g.y(tr),
           selectedL = (sim.switches[`${s}:L`] || g.tracks[0]) === tr,
@@ -4003,13 +4062,9 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
           lights += lamps(d, D55.lit, 6, r.releaseAt ? `opacity="${blink}"` : "");
         });
       // kiágazási csonkok
-      const bySide = {};
       let stubTrains = "", vgCimke = "";
-      for (const def of branches) {
-        const key = def.side + (def.vert === "down" ? "d" : "u"),
-          k = (bySide[key] = (bySide[key] || 0) + 1) - 1,
-          st = branchStub(s, def, k, sides, torkok),
-          b = LB.state(sim, def.id),
+      for (const { def, st } of stubok) {
+        const b = LB.state(sim, def.id),
           d = sav(st.pts, st.gap);
         trk(d, LB.occupants(b).length ? D55.occ : null);
         if (st.pts2) {
@@ -4021,8 +4076,6 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
           vgCimke += `<text x="${st.vg[0]}" y="${felso - 7}" text-anchor="middle" fill="#17321e" font-size="10" stroke="#bdd7ae" stroke-width="3" paint-order="stroke">1. vg</text>` +
                   `<text x="${st.vg[0]}" y="${also - 7}" text-anchor="middle" fill="#17321e" font-size="10" stroke="#bdd7ae" stroke-width="3" paint-order="stroke">2. vg</text>`;
         }
-        // saját váltósor (ahol az ág nem a fővonal torkát használja)
-        if (st.letraD) for (const d2 of st.letraD) trk(d2);
         const ut = (tr) => st.throat(tr);
         if (b.route)
           lights += lamps(
