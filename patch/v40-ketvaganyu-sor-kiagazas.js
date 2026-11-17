@@ -200,7 +200,9 @@
     // ───────────────────────────────────────────────────────────────────
     const LINE_BRANCHES = [
       // double: irányonként külön vágány (egyszerre egy be- és egy kimenő vonat lehet a szakaszon); ownThroat: saját bejárati vágányok, nem zárja a fővonali állomásvéget
-      { id: "kelenfold-keleti", station: 1, side: "L", name: "Budapest-Keleti felé", double: true, ownThroat: true, travel: 3,
+      // under: a két vágány a fővonal vágányai ALATT megy át, és lent, saját váltókörzetben
+      // éri el az állomást — Kelenföldön a Ferencváros felőli pár (Ch/Dh bejárati jelző) így jön
+      { id: "kelenfold-keleti", station: 1, side: "L", name: "Budapest-Keleti felé", double: true, ownThroat: true, under: true, travel: 3,
         // Kelenföldön a Keleti felé a 7–15. vágányról vezet vágányút (az 1–6 csak a Déli felé)
         tracks: ["VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV"] },
       { id: "kelenfold-szfvar", station: 1, side: "R", vert: "up", name: "Székesfehérvár felé (30a, Érd alsón át)", double: true, ownThroat: true, travel: 3 },
@@ -638,6 +640,8 @@
     // Kétvágányú oldalon: mindkét vonali vágány a saját váltóján (x=215 / 985) csatlakozik az állomás saját térfelén
     // lévő vágányokhoz; a két vonali vágány közt X alakú átmenő kitérő (x 178–212 / 988–1022), így bármelyikről bármelyik vágány elérhető.
     const XO = { L: [178, 212], R: [1022, 988] }; // átmenő kitérő két vége (vonal felől → állomás felé)
+    // melyik vágányokra vezet egyáltalán vágányút a fővonal felől (null = mindre)
+    const KORLAT_LISTA = (s, side) => window.VaganyKorlat?.[s]?.[side] || null;
     function naturalLane(sd, y, m) {
       if (!sd.double) return null;
       const upper = sd.lanes.reduce((a, b) => (a.y < b.y ? a : b)), lower = sd.lanes.reduce((a, b) => (a.y > b.y ? a : b));
@@ -665,12 +669,71 @@
       return pts;
     };
 
+    // Útvonal SVG-sávvá; ha van keresztezési sáv (g0..g1), ott lyukat hagyunk: a külön
+    // szintű keresztezést a pulton — ahogy a helyszínrajzon is — megszakított sáv jelzi.
+    function sav(pts, gap) {
+      const d = (q) => "M" + q.map((p) => p.join(",")).join("L");
+      if (!gap) return d(pts);
+      const [g0, g1] = gap,
+        benn = (y) => y > g0 && y < g1,
+        metsz = (a, b, y) => [+(a[0] + ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1])).toFixed(1), y],
+        darab = [];
+      let cur = [];
+      const zar = () => { if (cur.length > 1) darab.push(cur); cur = []; };
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i], b = pts[i + 1], le = a[1] < b[1];
+        if (benn(a[1]) && benn(b[1])) { cur = []; continue; }
+        if (benn(b[1])) { cur.push(a, metsz(a, b, le ? g0 : g1)); zar(); continue; }
+        if (benn(a[1])) { cur = [metsz(a, b, le ? g1 : g0), b]; continue; }
+        if (Math.min(a[1], b[1]) < g0 && Math.max(a[1], b[1]) > g1) {
+          cur.push(a, metsz(a, b, le ? g0 : g1)); zar();
+          cur = [metsz(a, b, le ? g1 : g0), b];
+        } else cur.push(a, b);
+      }
+      zar();
+      return darab.map(d).join("");
+    }
+
     function branchStub(s, def, k, sides) {
       // k: hányadik kiágazás ezen az oldalon és irányban; a külső vonali vágányból ágazik ki, fölfelé vagy lefelé.
       const g = geom(s),
         sd = sides[def.side],
-        down = def.vert === "down",
-        ys = sd.double ? sd.lanes.map((l) => l.y) : [g.mid],
+        bal = def.side === "L",
+        fx = bal ? 215 : 985, // az állomási váltókörzet (torok) kezdete
+        tx = bal ? 350 : 850, // innen futnak egyenesen a vágányok
+        ys = sd.double ? sd.lanes.map((l) => l.y) : [g.mid];
+
+      if (def.under) {
+        // Külön szintű keresztezés: a pár a fővonal fölött lép be a pultra, függőlegesen
+        // átmegy ALATTA (a keresztezésnél megszakított sáv jelzi), és lent, saját váltókörzetből
+        // ágazik szét a saját vágányaira. A fővonal torka ettől érintetlen marad.
+        const be = Math.min(...ys) - 86, // felső (1.) vonali vágány a pult szélén
+          be2 = be + 26,
+          alja = Math.max(...g.tracks.map((t) => g.y(t))) + 38,
+          alja2 = alja + 26,
+          j = bal ? 1 : -1,
+          x0 = bal ? 15 : 1185,
+          x1 = bal ? 72 : 1128,
+          x2 = bal ? 150 : 1050;
+        const pts = [[x0, be], [x1, be], [x2, alja], [fx, alja]];
+        return {
+          pts,
+          // a második vágány a torokpontban csatlakozik az elsőhöz
+          pts2: [[x0, be2], [x1 + 26 * j, be2], [x2 + 26 * j, alja2], [fx, alja]],
+          tx,
+          fan: [fx, alja], // saját torokpont: innen ágazik a saját vágányaira
+          // a keresztezés helyén lyuk marad a sávban: ott a pár a fővonal alatt megy át
+          gap: [Math.min(...ys) - 16, Math.max(...ys) + 16],
+          label: [bal ? 20 : 1180, be - 34],
+          anchor: bal ? "start" : "end",
+          sig: [x1, be],
+          sigdy: -13,
+          vg: [bal ? 24 : 1176, be, bal ? 24 : 1176, be2],
+          throat: () => [pts[1], pts[2], pts[3]],
+        };
+      }
+
+      const down = def.vert === "down",
         outer = down ? Math.max(...ys) : Math.min(...ys),
         koz = def.double ? 26 : 0,
         yb = down ? outer + 150 + k * (36 + koz) : outer - 44 - k * (36 + koz),
@@ -678,11 +741,19 @@
         yb2 = down ? yb + koz : yb - koz,
         ly = down ? Math.max(yb, yb2) + 24 : Math.min(yb, yb2) - 21;
       const alak = (x0, x1, x2, y) => [[x0, y], [x1, y], [x2, outer]];
-      return def.side === "L"
-        ? { pts: alak(15, 68, 130, yb), pts2: koz ? alak(15, 68, 130, yb2) : null,
-            label: [20, ly], anchor: "start", sig: [68, yb], vg: [40, yb, 40, yb2] }
-        : { pts: alak(1185, 1132, 1070, yb), pts2: koz ? alak(1185, 1132, 1070, yb2) : null,
-            label: [1180, ly], anchor: "end", sig: [1132, yb], vg: [1160, yb, 1160, yb2] };
+      const pts = bal ? alak(15, 68, 130, yb) : alak(1185, 1132, 1070, yb);
+      return {
+        pts,
+        pts2: koz ? (bal ? alak(15, 68, 130, yb2) : alak(1185, 1132, 1070, yb2)) : null,
+        tx,
+        label: [bal ? 20 : 1180, ly],
+        anchor: bal ? "start" : "end",
+        sig: [bal ? 68 : 1132, yb],
+        sigdy: down ? 13 : -13,
+        vg: [bal ? 40 : 1160, yb, bal ? 40 : 1160, yb2],
+        // a fővonal torkán át éri el a vágányt (a vonali vágány természetes oldalán)
+        throat: (y) => [pts[1], pts[2], [fx, (naturalLane(sd, y, g.mid) || { y: g.mid }).y]],
+      };
     }
 
     svgSignal = function (s, name, x, y, dir) {
@@ -771,12 +842,14 @@
           queue = sim.queueAhead(s, tr, "__nobody__").length;
         const nL = naturalLane(sides.L, y, g.mid), nR = naturalLane(sides.R, y, g.mid),
           yL = nL ? nL.y : g.mid, yR = nR ? nR.y : g.mid;
-        trk(`M215 ${yL}L350 ${y}`);
-        trk(`M850 ${y}L985 ${yR}`);
+        // a fővonal torka csak azokat a vágányokat éri el, amikre valóban vezet vágányút
+        const fovonal = (side) => !KORLAT_LISTA(s, side) || KORLAT_LISTA(s, side).includes(tr);
+        if (fovonal("L")) trk(`M215 ${yL}L350 ${y}`);
+        if (fovonal("R")) trk(`M850 ${y}L985 ${yR}`);
         trk(`M350 ${y}H850`, closed ? D55.closed : occ ? D55.occ : null);
         // váltóállás-visszajelentés: rövid világító szakasz a váltónál
-        if (selectedL) lights += lamps(`M215 ${yL}L${215 + 48} ${yL + (y - yL) * (48 / 135)}`, D55.pos);
-        if (selectedR) lights += lamps(`M985 ${yR}L${985 - 48} ${yR + (y - yR) * (48 / 135)}`, D55.pos);
+        if (selectedL && fovonal("L")) lights += lamps(`M215 ${yL}L${215 + 48} ${yL + (y - yL) * (48 / 135)}`, D55.pos);
+        if (selectedR && fovonal("R")) lights += lamps(`M985 ${yR}L${985 - 48} ${yR + (y - yR) * (48 / 135)}`, D55.pos);
         html += `<text x="600" y="${y + 24}" text-anchor="middle" fill="#17321e" font-size="12">${tr}. vágány${closed ? " · LEZÁRVA" : ""}${queue > 1 ? ` · sorban: ${queue}` : ""}</text>`;
       });
       Object.values(sim.routes)
@@ -788,37 +861,43 @@
         });
       // kiágazási csonkok
       const bySide = {};
-      let stubTrains = "";
+      let stubTrains = "", vgCimke = "";
       for (const def of branches) {
         const key = def.side + (def.vert === "down" ? "d" : "u"),
           k = (bySide[key] = (bySide[key] || 0) + 1) - 1,
           st = branchStub(s, def, k, sides),
           b = LB.state(sim, def.id),
-          d = "M" + st.pts.map((p) => p.join(",")).join("L");
+          d = sav(st.pts, st.gap);
         trk(d, LB.occupants(b).length ? D55.occ : null);
         if (st.pts2) {
           // kétvágányú ág: a második vágány is kirajzolódik, a vonali vágányok jelölésével
-          trk("M" + st.pts2.map((p) => p.join(",")).join("L"));
+          trk(sav(st.pts2, st.gap));
           // a felső vágány az 1., ahogy a vonali vágányoknál is
           const [felso, also] = [st.vg[1], st.vg[3]].sort((a, z) => a - z);
-          html += `<text x="${st.vg[0]}" y="${felso - 7}" text-anchor="middle" fill="#17321e" font-size="10">1. vg</text>` +
-                  `<text x="${st.vg[0]}" y="${also - 7}" text-anchor="middle" fill="#17321e" font-size="10">2. vg</text>`;
+          // legfelülre kerül, különben a csonkon álló menet száma takarja
+          vgCimke += `<text x="${st.vg[0]}" y="${felso - 7}" text-anchor="middle" fill="#17321e" font-size="10" stroke="#bdd7ae" stroke-width="3" paint-order="stroke">1. vg</text>` +
+                  `<text x="${st.vg[0]}" y="${also - 7}" text-anchor="middle" fill="#17321e" font-size="10" stroke="#bdd7ae" stroke-width="3" paint-order="stroke">2. vg</text>`;
         }
+        if (st.fan) {
+          // saját váltókörzet: innen ágazik szét a saját vágányaira
+          for (const tr of def.tracks || g.tracks) trk(`M${st.fan[0]} ${st.fan[1]}L${st.tx} ${g.y(tr)}`);
+        }
+        const ut = (tr) => [...st.throat(g.y(tr)), [st.tx, g.y(tr)], [600, g.y(tr)]];
         if (b.route)
           lights += lamps(
-            "M" + [st.pts[1], st.pts[2], [def.side === "L" ? 215 : 985, (naturalLane(sides[def.side], g.y(b.route.track), g.mid) || { y: g.mid }).y], [def.side === "L" ? 350 : 850, g.y(b.route.track)], [600, g.y(b.route.track)]].map((p) => p.join(",")).join("L"),
+            sav(ut(b.route.track), st.gap),
             D55.lit,
             6,
             b.route.releaseAt ? `opacity="${blink}"` : "",
           );
-        stubTrains += `<circle cx="${st.sig[0]}" cy="${st.sig[1] + (def.vert === "down" ? 13 : -13)}" r="5" fill="${b.route?.clear ? "#35e36a" : "#ff3636"}" stroke="#111" stroke-width="2"/><text x="${st.label[0]}" y="${st.label[1]}" text-anchor="${st.anchor}" fill="#17321e" font-size="11">${esc(def.name)}${LB.occupants(b).length ? " · " + esc(LB.occupants(b).join(", ")) : ""}</text>`;
+        stubTrains += `<circle cx="${st.sig[0]}" cy="${st.sig[1] + st.sigdy}" r="5" fill="${b.route?.clear ? "#35e36a" : "#ff3636"}" stroke="#111" stroke-width="2"/><text x="${st.label[0]}" y="${st.label[1]}" text-anchor="${st.anchor}" fill="#17321e" font-size="11">${esc(def.name)}${LB.occupants(b).length ? " · " + esc(LB.occupants(b).join(", ")) : ""}</text>`;
         // menetek a csonkon
         for (const t of sim.trains) {
           if (!t.lineBranch || t.finished || t.lineBranch.id !== def.id) continue;
           const el = sim.time - (t.branchSince ?? sim.time);
           let pos = null;
           const stub = [st.pts[0], st.pts[1]],
-            throat = [st.pts[1], st.pts[2], [def.side === "L" ? 215 : 985, (naturalLane(sides[def.side], g.y(t.track), g.mid) || { y: g.mid }).y], [def.side === "L" ? 350 : 850, g.y(t.track)], [600, g.y(t.track)]];
+            throat = ut(t.track);
           if (t.phase === "branchLineIn") pos = sample(stub, Math.min(1, el / LB.travel(def)) * length(stub));
           else if (t.phase === "branchHold") pos = sample(stub, length(stub));
           else if (t.phase === "branchEntering") pos = sample(throat, Math.min(1, el / THROAT) * length(throat));
@@ -827,7 +906,7 @@
           if (pos) stubTrains += branchTrainBox(t, pos.x, pos.y);
         }
       }
-      html += bands + lights + stubTrains;
+      html += bands + lights + stubTrains + vgCimke;
       g.tracks.forEach((tr) => {
         const y = g.y(tr);
         html += svgSignal(s, "KL-" + tr, 380, y, -1) + svgSignal(s, "KR-" + tr, 820, y, 1) + svgButton("KL-" + tr, 412, y) + svgButton("KR-" + tr, 788, y);

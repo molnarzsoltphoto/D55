@@ -17,6 +17,8 @@
   const KORLAT = {
     1: { L: ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"] }, // Déli felé
   };
+  // a pult rajza is ebből dolgozik: a fővonal torka csak ezeket a vágányokat éri el
+  window.VaganyKorlat = KORLAT;
 
   function install() {
     if (typeof Simulation === "undefined" || typeof sim === "undefined") return false;
