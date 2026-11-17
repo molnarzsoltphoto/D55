@@ -2,15 +2,20 @@
   "use strict";
   // VONAL 40 · 0.24 — állomási vágánykorlátozás.
   //
-  // Nem minden vágányról vezet vágányút minden irányba. Kelenföldön a Déli felé csak az
-  // 1–8. vágányról van kijárat (a Keleti felé a 7–15-ről, azt a kiágazás saját
-  // `tracks` listája intézi). Eddig a gép bármelyik vágányt kioszthatta, és a játékos
-  // is állíthatott olyan vágányutat, ami a valóságban nincs.
+  // Nem minden vágányról vezet vágányút minden irányba. Kelenföldön a Déli felé az
+  // 1–10. vágányról van kijárat (a Keleti felé a 7–15-ről, azt a kiágazás saját
+  // `tracks` listája intézi), a 11–15. vágányról tehát csak a Keleti felé lehet menni.
+  // Eddig a gép bármelyik vágányt kioszthatta, és a játékos is állíthatott olyan
+  // vágányutat, ami a valóságban nincs.
   //
   // A korlátozás a fővonali menetekre vonatkozik: a kiágazási menetek a saját águkhoz
   // tartozó listát követik.
+  // Kelenföld vágánykiosztása a helyszínrajz szerint:
+  //   1–6   csak a Déli felé
+  //   7–10  mindkét irányba
+  //   11–15 csak a Keleti felé (a két vágány alul átmegy a Déli vágányain)
   const KORLAT = {
-    1: { L: ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"] }, // Budapest-Kelenföld, Déli felé
+    1: { L: ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"] }, // Déli felé
   };
 
   function install() {

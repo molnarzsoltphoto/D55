@@ -201,7 +201,7 @@
     const LINE_BRANCHES = [
       // double: irányonként külön vágány (egyszerre egy be- és egy kimenő vonat lehet a szakaszon); ownThroat: saját bejárati vágányok, nem zárja a fővonali állomásvéget
       { id: "kelenfold-keleti", station: 1, side: "L", name: "Budapest-Keleti felé", double: true, ownThroat: true, travel: 3,
-        // Kelenföldön a Keleti felé csak a 7–15. vágányról vezet vágányút
+        // Kelenföldön a Keleti felé a 7–15. vágányról vezet vágányút (az 1–6 csak a Déli felé)
         tracks: ["VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV"] },
       { id: "kelenfold-szfvar", station: 1, side: "R", vert: "up", name: "Székesfehérvár felé (30a, Érd alsón át)", double: true, ownThroat: true, travel: 3 },
       { id: "kelenfold-gyor", station: 1, side: "R", vert: "down", name: "Győr felé", double: true, ownThroat: true, travel: 3 },
