@@ -822,8 +822,8 @@
         const sajat = bejarat([[fx, alja], [fx, alja2]], def.tracks || g.tracks, vegX, tx, j, g.y);
         return {
           pts, pts2, tx, peel: sajat.peel,
-          // a saját létra, és a pár két vágánya közt átmenő kitérő
-          letraD: [...sajat.d, ...kitero([pts[1], pts[2]], [pts2[1], pts2[2]], 0.42, 0.5)],
+          // a pár két vágánya végig párhuzamos: sehol nem keresztezik egymást
+          letraD: sajat.d,
           // a keresztezés helyén lyuk marad a sávban: ott a pár a fővonal alatt megy át
           gap: [Math.min(...ys) - 16, Math.max(...ys) + 16],
           label: [bal ? 20 : 1180, be - 34],
@@ -990,6 +990,16 @@
         if (peel.L.has(tr) && peel.L.get(tr) < TX.L) trk(`M${peel.L.get(tr)} ${y}H${TX.L}`);
         if (peel.R.has(tr) && peel.R.get(tr) > TX.R) trk(`M${TX.R} ${y}H${peel.R.get(tr)}`);
       });
+      // peronok: a csoport vágányai közt futó sáv. Ahol nincs csoport, ott nincs peron —
+      // az a vágány a tehervonatoké.
+      const peronTalan = new Set(window.VaganyTeher?.[s] || []);
+      for (const csoport of window.VaganyPeron?.[s] || []) {
+        const ys = csoport.filter((t) => g.tracks.includes(t)).map((t) => g.y(t)).sort((a, z) => a - z);
+        for (let i = 0; i + 1 < ys.length; i += 2) {
+          const ky = (ys[i] + ys[i + 1]) / 2;
+          html += `<rect x="452" y="${ky - 3}" width="296" height="12" rx="6" fill="#9cb391" stroke="#7d9a72" stroke-width="1"/>`;
+        }
+      }
       g.tracks.forEach((tr) => {
         const y = g.y(tr),
           selectedL = (sim.switches[`${s}:L`] || g.tracks[0]) === tr,
@@ -1001,7 +1011,7 @@
         // váltóállás-visszajelentés: rövid világító szakasz a torok elején
         if (selectedL && torkok.L.ut.has(tr)) lights += lamps(eleje(torkok.L.ut.get(tr), 52), D55.pos);
         if (selectedR && torkok.R.ut.has(tr)) lights += lamps(eleje(torkok.R.ut.get(tr), 52), D55.pos);
-        html += `<text x="600" y="${y + 24}" text-anchor="middle" fill="#17321e" font-size="12">${tr}. vágány${closed ? " · LEZÁRVA" : ""}${queue > 1 ? ` · sorban: ${queue}` : ""}</text>`;
+        html += `<text x="600" y="${y + 18}" text-anchor="middle" fill="#17321e" font-size="12" stroke="#bdd7ae" stroke-width="3" paint-order="stroke">${tr}. vágány${peronTalan.has(tr) ? " · teher" : ""}${closed ? " · LEZÁRVA" : ""}${queue > 1 ? ` · sorban: ${queue}` : ""}</text>`;
       });
       Object.values(sim.routes)
         .filter((r) => r.at === s)

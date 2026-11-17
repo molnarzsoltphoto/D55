@@ -20,6 +20,19 @@
   // a pult rajza is ebből dolgozik: a fővonal torka csak ezeket a vágányokat éri el
   window.VaganyKorlat = KORLAT;
 
+  // Peronok: egy csoport vágányai közös peronon vannak. Amelyik vágány egyik csoportban
+  // sincs, annál nincs peron — ott utasvonat nem állhat meg, az a tehervonatoké.
+  const PERON = {
+    1: [["I", "II"], ["III", "IV"], ["V", "VI"], ["VII", "VIII", "IX", "X"], ["XIV", "XV"]],
+  };
+  const PERONTALAN = {};
+  for (const [st, csoportok] of Object.entries(PERON)) {
+    const van = new Set(csoportok.flat());
+    PERONTALAN[st] = (STATIONS[st]?.tracks || []).filter((t) => !van.has(t));
+  }
+  window.VaganyPeron = PERON;
+  window.VaganyTeher = PERONTALAN;
+
   function install() {
     if (typeof Simulation === "undefined" || typeof sim === "undefined") return false;
     const P = Simulation.prototype;
@@ -57,22 +70,34 @@
       !s.busy(station, track, id) &&
       !Object.values(s.routes).some((r) => r.at === station && r.track === track && r.train !== id);
 
+    // Tehervonat a peron nélküli vágányra, utasvonat a peronosra. Nem kizárás, hanem
+    // sorrend: ha a sajátja mind foglalt, inkább álljon rossz helyre, mint sehova.
+    const teherE = (t) => !!t && (t.kind === "freight" || !t.menetrendi);
+    const peronSorrend = (station, t, jelolt) => {
+      const teh = PERONTALAN[station];
+      if (!teh || !teh.length || !t) return jelolt;
+      const oda = jelolt.filter((x) => teh.includes(x)), tobbi = jelolt.filter((x) => !teh.includes(x));
+      return teherE(t) ? [...oda, ...tobbi] : [...tobbi, ...oda];
+    };
+
     const prevFree = P.freeReceivingTrack;
     P.freeReceivingTrack = function (station, trainId) {
       const t = this.trains.find((x) => x.id === trainId);
-      const eng = sajatLista(station, t);
       const valasz = prevFree.call(this, station, trainId);
-      if (!eng && KORLAT[station] && t) {
+      if (!KORLAT[station] && !PERONTALAN[station]?.length) return valasz;
+      const eng = sajatLista(station, t);
+      let jelolt = STATIONS[station].tracks.filter((x) => szabad(this, station, x, trainId));
+      if (eng) {
+        // a saját sávjából kapjon vágányt: így a Keleti felé tartó menetek nem szorítják
+        // ki a Déli felőli forgalmat az 1–10-ről, és fordítva
+        jelolt = jelolt.filter((x) => eng.includes(x));
+      } else if (KORLAT[station] && t) {
         // itt végállomásozó vagy innen induló menet: a fővonal vágányait hagyjuk szabadon
-        const l = lista(station, "L") || [];
-        const kulso = STATIONS[station].tracks.filter((x) => !l.includes(x) && szabad(this, station, x, trainId));
-        if (kulso.length) return kulso[0];
+        const l = lista(station, "L") || [], kulso = jelolt.filter((x) => !l.includes(x));
+        if (kulso.length) jelolt = kulso;
       }
-      if (!eng || (valasz && eng.includes(valasz))) return valasz;
-      // a saját sávjából kapjon vágányt: így a Keleti felé tartó menetek nem szorítják
-      // ki a Déli felőli forgalmat a 1–8-ról, és fordítva
-      const jo = STATIONS[station].tracks.filter((x) => eng.includes(x) && szabad(this, station, x, trainId));
-      return jo.length ? jo[0] : null;
+      if (!jelolt.length) return eng ? null : valasz;
+      return peronSorrend(station, t, jelolt)[0];
     };
 
     const prevSet = P.setRoute;

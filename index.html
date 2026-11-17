@@ -3896,8 +3896,8 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
         const sajat = bejarat([[fx, alja], [fx, alja2]], def.tracks || g.tracks, vegX, tx, j, g.y);
         return {
           pts, pts2, tx, peel: sajat.peel,
-          // a saját létra, és a pár két vágánya közt átmenő kitérő
-          letraD: [...sajat.d, ...kitero([pts[1], pts[2]], [pts2[1], pts2[2]], 0.42, 0.5)],
+          // a pár két vágánya végig párhuzamos: sehol nem keresztezik egymást
+          letraD: sajat.d,
           // a keresztezés helyén lyuk marad a sávban: ott a pár a fővonal alatt megy át
           gap: [Math.min(...ys) - 16, Math.max(...ys) + 16],
           label: [bal ? 20 : 1180, be - 34],
@@ -4064,6 +4064,16 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
         if (peel.L.has(tr) && peel.L.get(tr) < TX.L) trk(`M${peel.L.get(tr)} ${y}H${TX.L}`);
         if (peel.R.has(tr) && peel.R.get(tr) > TX.R) trk(`M${TX.R} ${y}H${peel.R.get(tr)}`);
       });
+      // peronok: a csoport vágányai közt futó sáv. Ahol nincs csoport, ott nincs peron —
+      // az a vágány a tehervonatoké.
+      const peronTalan = new Set(window.VaganyTeher?.[s] || []);
+      for (const csoport of window.VaganyPeron?.[s] || []) {
+        const ys = csoport.filter((t) => g.tracks.includes(t)).map((t) => g.y(t)).sort((a, z) => a - z);
+        for (let i = 0; i + 1 < ys.length; i += 2) {
+          const ky = (ys[i] + ys[i + 1]) / 2;
+          html += `<rect x="452" y="${ky - 3}" width="296" height="12" rx="6" fill="#9cb391" stroke="#7d9a72" stroke-width="1"/>`;
+        }
+      }
       g.tracks.forEach((tr) => {
         const y = g.y(tr),
           selectedL = (sim.switches[`${s}:L`] || g.tracks[0]) === tr,
@@ -4075,7 +4085,7 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
         // váltóállás-visszajelentés: rövid világító szakasz a torok elején
         if (selectedL && torkok.L.ut.has(tr)) lights += lamps(eleje(torkok.L.ut.get(tr), 52), D55.pos);
         if (selectedR && torkok.R.ut.has(tr)) lights += lamps(eleje(torkok.R.ut.get(tr), 52), D55.pos);
-        html += `<text x="600" y="${y + 24}" text-anchor="middle" fill="#17321e" font-size="12">${tr}. vágány${closed ? " · LEZÁRVA" : ""}${queue > 1 ? ` · sorban: ${queue}` : ""}</text>`;
+        html += `<text x="600" y="${y + 18}" text-anchor="middle" fill="#17321e" font-size="12" stroke="#bdd7ae" stroke-width="3" paint-order="stroke">${tr}. vágány${peronTalan.has(tr) ? " · teher" : ""}${closed ? " · LEZÁRVA" : ""}${queue > 1 ? ` · sorban: ${queue}` : ""}</text>`;
       });
       Object.values(sim.routes)
         .filter((r) => r.at === s)
@@ -5136,6 +5146,19 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
   // a pult rajza is ebből dolgozik: a fővonal torka csak ezeket a vágányokat éri el
   window.VaganyKorlat = KORLAT;
 
+  // Peronok: egy csoport vágányai közös peronon vannak. Amelyik vágány egyik csoportban
+  // sincs, annál nincs peron — ott utasvonat nem állhat meg, az a tehervonatoké.
+  const PERON = {
+    1: [["I", "II"], ["III", "IV"], ["V", "VI"], ["VII", "VIII", "IX", "X"], ["XIV", "XV"]],
+  };
+  const PERONTALAN = {};
+  for (const [st, csoportok] of Object.entries(PERON)) {
+    const van = new Set(csoportok.flat());
+    PERONTALAN[st] = (STATIONS[st]?.tracks || []).filter((t) => !van.has(t));
+  }
+  window.VaganyPeron = PERON;
+  window.VaganyTeher = PERONTALAN;
+
   function install() {
     if (typeof Simulation === "undefined" || typeof sim === "undefined") return false;
     const P = Simulation.prototype;
@@ -5173,22 +5196,34 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
       !s.busy(station, track, id) &&
       !Object.values(s.routes).some((r) => r.at === station && r.track === track && r.train !== id);
 
+    // Tehervonat a peron nélküli vágányra, utasvonat a peronosra. Nem kizárás, hanem
+    // sorrend: ha a sajátja mind foglalt, inkább álljon rossz helyre, mint sehova.
+    const teherE = (t) => !!t && (t.kind === "freight" || !t.menetrendi);
+    const peronSorrend = (station, t, jelolt) => {
+      const teh = PERONTALAN[station];
+      if (!teh || !teh.length || !t) return jelolt;
+      const oda = jelolt.filter((x) => teh.includes(x)), tobbi = jelolt.filter((x) => !teh.includes(x));
+      return teherE(t) ? [...oda, ...tobbi] : [...tobbi, ...oda];
+    };
+
     const prevFree = P.freeReceivingTrack;
     P.freeReceivingTrack = function (station, trainId) {
       const t = this.trains.find((x) => x.id === trainId);
-      const eng = sajatLista(station, t);
       const valasz = prevFree.call(this, station, trainId);
-      if (!eng && KORLAT[station] && t) {
+      if (!KORLAT[station] && !PERONTALAN[station]?.length) return valasz;
+      const eng = sajatLista(station, t);
+      let jelolt = STATIONS[station].tracks.filter((x) => szabad(this, station, x, trainId));
+      if (eng) {
+        // a saját sávjából kapjon vágányt: így a Keleti felé tartó menetek nem szorítják
+        // ki a Déli felőli forgalmat az 1–10-ről, és fordítva
+        jelolt = jelolt.filter((x) => eng.includes(x));
+      } else if (KORLAT[station] && t) {
         // itt végállomásozó vagy innen induló menet: a fővonal vágányait hagyjuk szabadon
-        const l = lista(station, "L") || [];
-        const kulso = STATIONS[station].tracks.filter((x) => !l.includes(x) && szabad(this, station, x, trainId));
-        if (kulso.length) return kulso[0];
+        const l = lista(station, "L") || [], kulso = jelolt.filter((x) => !l.includes(x));
+        if (kulso.length) jelolt = kulso;
       }
-      if (!eng || (valasz && eng.includes(valasz))) return valasz;
-      // a saját sávjából kapjon vágányt: így a Keleti felé tartó menetek nem szorítják
-      // ki a Déli felőli forgalmat a 1–8-ról, és fordítva
-      const jo = STATIONS[station].tracks.filter((x) => eng.includes(x) && szabad(this, station, x, trainId));
-      return jo.length ? jo[0] : null;
+      if (!jelolt.length) return eng ? null : valasz;
+      return peronSorrend(station, t, jelolt)[0];
     };
 
     const prevSet = P.setRoute;
