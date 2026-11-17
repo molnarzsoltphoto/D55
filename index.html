@@ -3276,11 +3276,14 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
       // double: irányonként külön vágány (egyszerre egy be- és egy kimenő vonat lehet a szakaszon); ownThroat: saját bejárati vágányok, nem zárja a fővonali állomásvéget
       // under: a két vágány a fővonal vágányai ALATT megy át, és lent, saját váltókörzetben
       // éri el az állomást — Kelenföldön a Ferencváros felőli pár (Ch/Dh bejárati jelző) így jön
+      // atmeno: az átmenő fővágányok — a vonali vágánypár egyenesen ezekbe fut be, a többi
+      // vágányt a saját váltósoráról éri el
       { id: "kelenfold-keleti", station: 1, side: "L", name: "Budapest-Keleti felé", double: true, ownThroat: true, under: true, travel: 3,
+        atmeno: ["XIV", "XV"],
         // Kelenföldön a Keleti felé a 7–15. vágányról vezet vágányút (az 1–6 csak a Déli felé)
         tracks: ["VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV"] },
-      { id: "kelenfold-szfvar", station: 1, side: "R", vert: "up", name: "Székesfehérvár felé (30a, Érd alsón át)", double: true, ownThroat: true, travel: 3 },
-      { id: "kelenfold-gyor", station: 1, side: "R", vert: "down", name: "Győr felé", double: true, ownThroat: true, travel: 3 },
+      { id: "kelenfold-szfvar", station: 1, side: "R", vert: "up", name: "Székesfehérvár felé (30a, Érd alsón át)", double: true, ownThroat: true, travel: 3, atmeno: ["III", "IV"] },
+      { id: "kelenfold-gyor", station: 1, side: "R", vert: "down", name: "Győr felé", double: true, ownThroat: true, travel: 3, atmeno: ["XIV", "XV"] },
       // a 30a Érd felsőt érintő vonatai itt hagyják el a modellt (Tárnok felé), saját váltókörzettel
       { id: "erdfelso-szfvar", station: 8, side: "R", vert: "down", name: "Székesfehérvár felé", double: true, ownThroat: true, travel: 3 },
       { id: "pszabolcs-dunaujvaros", station: 14, side: "R", vert: "up", name: "Dunaújváros felé" },
@@ -3699,7 +3702,12 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
         const nb = side === "L" ? CONTROL_IDS[i - 1] : CONTROL_IDS[i + 1],
           sec = nb === undefined ? null : sim.blockSystem.section(s, nb);
         if (!sec || !sec.double) return { double: false, sec, in: g.mid, out: g.mid, lanes: [], laneY: () => g.mid };
-        const lanes = sec.lanes.map((ln, k) => ({ lane: k, direction: ln.direction, y: g.mid + (k === 0 ? -17 : 17) }));
+        const at = ATMENO[s]?.[side];
+        const lanes = sec.lanes.map((ln, k) => ({
+          lane: k,
+          direction: ln.direction,
+          y: at && g.tracks.includes(at[k]) ? g.y(at[k]) : g.mid + (k === 0 ? -17 : 17),
+        }));
         const inDir = side === "L" ? 1 : -1,
           inc = lanes.find((l) => l.direction === inDir) || lanes[0],
           out = lanes.find((l) => l !== inc && l.direction === -inDir) || lanes.find((l) => l !== inc) || inc;
@@ -3715,12 +3723,17 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
     // lévő vágányokhoz; a két vonali vágány közt X alakú átmenő kitérő (x 178–212 / 988–1022), így bármelyikről bármelyik vágány elérhető.
     const XO = { L: [178, 212], R: [1022, 988] }; // átmenő kitérő két vége (vonal felől → állomás felé)
     const TX = { L: 350, R: 850 }; // innen futnak egyenesen a vágányok (a torok vége)
+    // A fővonal átmenő fővágányai állomásonként és állomásvégenként: a vonali vágánypár
+    // egyenesen ezekbe fut be, a többi vágányt a váltósoron át éri el. Ahol nincs megadva,
+    // a vonal a pult közepén jön be (a régi felállás).
+    const ATMENO = { 1: { L: ["III", "IV"], R: ["V", "VI"] } };
     // melyik vágányokra vezet egyáltalán vágányút a fővonal felől (null = mindre)
     const KORLAT_LISTA = (s, side) => window.VaganyKorlat?.[s]?.[side] || null;
     function naturalLane(sd, y, m) {
       if (!sd.double) return null;
       const upper = sd.lanes.reduce((a, b) => (a.y < b.y ? a : b)), lower = sd.lanes.reduce((a, b) => (a.y > b.y ? a : b));
-      return y <= m ? upper : lower;
+      // a két vonali vágány közti határ (ahol a pult közepén jönnek be, ez éppen g.mid)
+      return y <= (upper.y + lower.y) / 2 ? upper : lower;
     }
     // ---- Állomásvégi váltósor (létra).
     // A vonali vágányból ferde létra ágazik ki, és a vágányok külön-külön, saját váltóval
@@ -3744,18 +3757,32 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
       }
       return ki;
     }
-    // Egy bejárat (vonali vágány vagy saját torkú ág) váltósorai: a bázisponttól fölfelé és
-    // lefelé egy-egy létra, és ami épp a bázis magasságában van, az az átmenő vágány.
-    function bejarat(bazis, tracks, vegX, tx, irany, yOf) {
-      const fel = tracks.filter((t) => yOf(t) < bazis[1]).sort((a, b) => yOf(b) - yOf(a)),
-        le = tracks.filter((t) => yOf(t) > bazis[1]).sort((a, b) => yOf(a) - yOf(b)),
-        egyenes = tracks.filter((t) => yOf(t) === bazis[1]),
-        f = letra(bazis, fel, vegX, tx, irany, yOf),
-        l = letra(bazis, le, vegX, tx, irany, yOf),
+    // Egy bejárat (vonali vágánypár vagy saját torkú ág) váltósorai. bazisok: a felső és az
+    // alsó vonali vágány vége; fölötte és alatta egy-egy létra, a bázis magasságában lévő
+    // vágány pedig az átmenő fővágány: oda a vonal egyenesen befut.
+    function bejarat(bazisok, tracks, vegX, tx, irany, yOf) {
+      const [A, B] = bazisok, yA = A[1], yB = B[1];
+      const fel = tracks.filter((t) => yOf(t) < yA).sort((a, b) => yOf(b) - yOf(a)),
+        le = tracks.filter((t) => yOf(t) > yB).sort((a, b) => yOf(a) - yOf(b)),
+        kozt = tracks.filter((t) => yOf(t) >= yA && yOf(t) <= yB),
+        f = letra(A, fel, vegX, tx, irany, yOf),
+        l = letra(B, le, vegX, tx, irany, yOf),
         ki = { d: [...f.d, ...l.d], ut: new Map([...f.ut, ...l.ut]), peel: new Map([...f.peel, ...l.peel]) };
-      for (const t of egyenes) {
-        ki.peel.set(t, bazis[0]);
-        ki.ut.set(t, [bazis, [tx, yOf(t)]]);
+      for (const t of kozt) {
+        const y = yOf(t);
+        if (y === yA || y === yB) {
+          const b = y === yA ? A : B; // átmenő fővágány: a vonal egyenesen ebbe fut be
+          ki.peel.set(t, b[0]);
+          ki.ut.set(t, [b, [tx, y]]);
+        } else {
+          // a két vonali vágány közé esik: a felsőből rövid váltóval. Ugyanaz a hozzárendelés,
+          // amit a vágányút-logika (naturalLane) használ, különben a rajz olyan váltót
+          // mutatna, amin a gép sosem visz menetet.
+          const kx = A[0] + 34 * irany;
+          ki.d.push(`M${A[0]} ${yA}L${kx} ${y}`);
+          ki.peel.set(t, kx);
+          ki.ut.set(t, [A, [kx, y], [tx, y]]);
+        }
       }
       return ki;
     }
@@ -3771,26 +3798,9 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
         yD = sd.double ? Math.max(...sd.lanes.map((l) => l.y)) : m,
         lista = KORLAT_LISTA(s, side),
         elerheto = g.tracks.filter((t) => !lista || lista.includes(t)),
-        fel = elerheto.filter((t) => g.y(t) < yU).sort((a, b) => g.y(b) - g.y(a)),
-        le = elerheto.filter((t) => g.y(t) > yD).sort((a, b) => g.y(a) - g.y(b)),
-        kozep = elerheto.filter((t) => g.y(t) >= yU && g.y(t) <= yD);
-      // az alsó létra egyvágányú oldalon az átmenő vágányról ágazik le, külön váltóval
-      const bazisLe = sd.double ? [sx, yD] : [sx + 46 * irany, m],
-        f = letra([sx, yU], fel, tx, tx, irany, g.y),
-        l = letra(bazisLe, le, tx, tx, irany, g.y),
-        d = [...f.d, ...l.d],
-        ut = new Map([...f.ut, ...l.ut]),
-        peel = new Map([...f.peel, ...l.peel]);
-      // A két vonali vágány közé eső (átmenő) vágány a felső vonali vágány folytatása —
-      // ugyanaz a hozzárendelés, amit a vágányút-logika (naturalLane) használ, különben a
-      // rajz olyan váltót mutatna, amin a gép sosem visz menetet.
-      for (const t of kozep) {
-        const y = g.y(t), kx = sx + 34 * irany;
-        d.push(`M${sx} ${yU}L${kx} ${y}`);
-        peel.set(t, kx);
-        ut.set(t, [[sx, yU], [kx, y], [tx, y]]);
-      }
-      return { d, ut, peel, sx, tx };
+        // egyvágányú oldalon az alsó létra az átmenő vágányról ágazik le, külön váltóval
+        bazisok = sd.double ? [[sx, yU], [sx, yD]] : [[sx, m], [sx + 46 * irany, m]];
+      return { ...bejarat(bazisok, elerheto, tx, tx, irany, g.y), sx, tx };
     }
     // egy útvonal első d pixelnyi szakasza sávként (váltóállás-visszajelentéshez)
     const eleje = (pts, d) => {
@@ -3871,17 +3881,19 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
         // Külön szintű keresztezés: a pár a fővonal fölött lép be a pultra, függőlegesen
         // átmegy ALATTA (a keresztezésnél megszakított sáv jelzi), és lent, saját váltókörzetből
         // ágazik szét a saját vágányaira. A fővonal torka ettől érintetlen marad.
-        const koz = 38, // a pár két vágánya közti távolság (elfér köztük az átmenő kitérő)
-          be = Math.min(...ys) - 92, // felső (1.) vonali vágány a pult szélén
+        // a pár az átmenő fővágányaiba fut be; ahol nincs megadva, a vágánymező alá
+        const at = (def.atmeno || []).filter((t) => g.tracks.includes(t)),
+          alja = at.length === 2 ? g.y(at[0]) : Math.max(...g.tracks.map((t) => g.y(t))) + 34,
+          alja2 = at.length === 2 ? g.y(at[1]) : alja + 38,
+          koz = alja2 - alja, // a pár két vágánya közti távolság
+          be = Math.min(...ys) - 54 - koz, // a pár a fővonal fölött lép be a pultra
           be2 = be + koz,
-          alja = Math.max(...g.tracks.map((t) => g.y(t))) + 34,
-          alja2 = alja + koz,
           x1 = bal ? 72 : 1128,
           x2 = bal ? 150 : 1050;
         const pts = [[x0, be], [x1, be], [x2, alja], [fx, alja]],
-          pts2 = [[x0, be2], [x1 + koz * j, be2], [x2 + koz * j, alja2], [fx, alja]];
-        // saját váltósor: a pár a legközelebbi vágánytól a legtávolabbiig
-        const sajat = bejarat([fx, alja], def.tracks || g.tracks, vegX, tx, j, g.y);
+          pts2 = [[x0, be2], [x1 + koz * j, be2], [x2 + koz * j, alja2], [fx, alja2]];
+        // saját váltósor az átmenő pártól
+        const sajat = bejarat([[fx, alja], [fx, alja2]], def.tracks || g.tracks, vegX, tx, j, g.y);
         return {
           pts, pts2, tx, peel: sajat.peel,
           // a saját létra, és a pár két vágánya közt átmenő kitérő
@@ -3899,33 +3911,44 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
 
       const down = def.vert === "down",
         outer = down ? Math.max(...ys) : Math.min(...ys),
-        koz = def.double ? 26 : 0,
-        yb = down ? outer + 150 + k * (36 + koz) : outer - 44 - k * (36 + koz),
+        // az átmenő fővágányok, ha meg vannak adva — a pár egyenesen ezekbe fut be
+        at = (def.atmeno || []).filter((t) => g.tracks.includes(t)),
+        sajatTorok = def.ownThroat && def.double,
+        kozAlap = def.double ? 26 : 0,
+        yb = at.length === 2 ? g.y(at[0]) : down ? outer + 150 + k * (36 + kozAlap) : outer - 44 - k * (36 + kozAlap),
         // a kétvágányú ág két vágánya egymás alatt, a fővonaltól kifelé
-        yb2 = down ? yb + koz : yb - koz,
+        yb2 = at.length === 2 ? g.y(at[1]) : down ? yb + kozAlap : yb - kozAlap,
+        koz = def.double ? Math.abs(yb2 - yb) : 0,
         ly = down ? Math.max(yb, yb2) + 24 : Math.min(yb, yb2) - 21,
-        o = (v) => x0 + v * j,
-        sajatTorok = def.ownThroat && def.double;
-      // a 2. vágány nem a vonali csatlakozásban, hanem külön váltóval tér be az 1.-be
-      const bx = o(115), // itt kezdődik az ág váltókörzete (saját torokkal), vagy itt éri el a vonali vágányt
-        pts = sajatTorok
-          ? [[x0, yb], [o(55), yb], [o(75), yb], [bx, yb]]
-          : [[x0, yb], [o(55), yb], [o(75), yb], [bx, outer]];
+        o = (v) => x0 + v * j;
+      // itt kezdődik az ág váltókörzete (saját torokkal), vagy itt éri el a vonali vágányt;
+      // az átmenő párnál beljebb, hogy elférjen köztük az átmenő kitérő
+      const bx = o(at.length === 2 ? 145 : 115);
+      const pts = sajatTorok
+          ? [[x0, yb], [o(40), yb], [o(60), yb], [bx, yb]]
+          : [[x0, yb], [o(55), yb], [o(75), yb], [bx, outer]],
+        // az átmenő párnál mindkét vágány egyenesen befut; különben a 2. külön váltóval tér be az 1.-be
+        pts2 = !koz ? null : at.length === 2 ? [[x0, yb2], [o(40), yb2], [bx, yb2]] : [[x0, yb2], [o(35), yb2], [o(75), yb]];
       // Saját torokkal az ág a saját váltósoráról éri el a vágányokat — nem a fővonal
       // torkán át. Így a pécsi végen mindhárom irányból minden vágány elérhető, de
       // mindegyiknek külön váltókörzete van.
-      const sajat = sajatTorok ? bejarat([bx, yb], def.tracks || g.tracks, vegX, tx, j, g.y) : null;
+      const sajat = sajatTorok
+        ? bejarat(at.length === 2 ? [[bx, yb], [bx, yb2]] : [[bx, yb], [bx, yb]], def.tracks || g.tracks, vegX, tx, j, g.y)
+        : null;
       return {
         pts,
-        pts2: koz ? [[x0, yb2], [o(35), yb2], [o(75), yb]] : null,
+        pts2,
         tx,
         peel: sajat?.peel,
-        letraD: sajat?.d,
+        // az átmenő párnál a két vágány közt is van átmenő kitérő
+        letraD: sajat && at.length === 2
+          ? [...sajat.d, `M${o(60)} ${yb}L${o(135)} ${yb2}`, `M${o(60)} ${yb2}L${o(135)} ${yb}`]
+          : sajat?.d,
         label: [bal ? 20 : 1180, ly],
         anchor: bal ? "start" : "end",
-        sig: [o(55), yb],
+        sig: [o(at.length === 2 ? 40 : 55), yb],
         sigdy: down ? 13 : -13,
-        vg: [bal ? 40 : 1160, yb, bal ? 40 : 1160, yb2],
+        vg: [o(at.length === 2 ? 18 : 25), yb, o(at.length === 2 ? 18 : 25), yb2],
         throat: (tr) =>
           sajat
             ? [pts[1], pts[2], ...(sajat.ut.get(tr) || [[bx, yb], [tx, g.y(tr)]]), [600, g.y(tr)]]
