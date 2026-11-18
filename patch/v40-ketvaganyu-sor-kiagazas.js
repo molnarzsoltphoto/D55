@@ -979,6 +979,10 @@
         return {
           pts, pts2, tx,
           bazis: { id: def.id, x: fx, ys: [alja, alja2], enged: def.tracks || null, kifut: false },
+          // A 2. vágány külön váltóval tér be az 1.-be, különben csak a saját átmenő
+          // vágányát érné el: így mindkét vágányról ki lehet járni az egész váltósorra.
+          // Egyetlen ferde vágány, nem átmenő kitérő — a pár így sem keresztezi magát.
+          letraD: [`M${fx - 60 * j} ${alja2}L${fx} ${alja}`],
           // a pár két vágánya végig párhuzamos: sehol nem keresztezik egymást
           // a keresztezés helyén lyuk marad a sávban: ott a pár a fővonal alatt megy át
           gap: [Math.min(...ys) - 16, Math.max(...ys) + 16],
@@ -1003,7 +1007,7 @@
         LEP = 58, // egy vágányköznyi lépés
         atY = at.length === 2 ? [g.y(at[0]), g.y(at[1])] : null,
         szomszedos = atY && Math.abs((down ? Math.min(...atY) : Math.max(...atY)) - outer) <= 2 * LEP,
-        sorolt = sajatTorok && !szomszedos,
+        sorolt = sajatTorok && !!atY && !szomszedos,
         kozS = def.double ? LEP : 0,
         yb = atY && szomszedos
           ? atY[0]
