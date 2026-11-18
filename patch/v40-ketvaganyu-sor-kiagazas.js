@@ -812,23 +812,28 @@
       };
       let x = P.sx[side];
       for (let i = 0; i + 1 < sorrend.length; i++) {
-        const A = sorrend[i], B = sorrend[i + 1];
-        let pts;
+        const A = sorrend[i], B = sorrend[i + 1], aY = Math.max(...A.ys);
+        const lista = [];
         if (A.kifut && B.kifut) {
-          // mindkét kivezetés a pult széléig fut: kint, a párhuzamos szakaszon kötjük össze,
-          // kifelé haladva, hogy a menet sehol ne forduljon vissza
-          const dy = Math.abs(Math.min(...B.ys) - Math.max(...A.ys)),
-            hely = Math.max(60, (P.szel[side] - x) * ki - 40),
-            dx = Math.min(dy * 0.45, hely / (sorrend.length - 1 - i));
-          pts = [[x, Math.max(...A.ys)], [x + dx * ki, Math.min(...B.ys)]];
-          x += dx * ki;
+          // Mindkét kivezetés a pult széléig fut: kint, a párhuzamos szakaszon kötjük össze,
+          // kifelé haladva, hogy a menet sehol ne forduljon vissza. A szomszéd minden
+          // vezérvágányához külön kiágazás megy, egymás után — így nem egyetlen vágányon
+          // kell átmennie mindennek (Kelenföldön a 6–10-ről a Győr felé).
+          const hatar = (sorrend.length - 1 - i) * B.ys.length;
+          B.ys.forEach((by) => {
+            const hely = Math.max(60, (P.szel[side] - x) * ki - 30),
+              dx = Math.min(Math.abs(by - aY) * 0.45, hely / hatar);
+            lista.push({ y: by, pts: [[x, aY], [x + dx * ki, by]] });
+            x += Math.min(dx, 46) * ki; // a következő kiágazás kicsit kijjebb nyílik
+          });
+          x = Math.max(...lista.map((l) => l.pts[1][0] * ki)) * ki;
         } else {
           // az egyik külön szintben megy (Kelenföldön a Keleti pár a Déli alatt): kint nincs
           // köztük kapcsolat, a két váltósor vége ér össze a torokban
-          pts = [veg(A, true), veg(B, false)];
+          lista.push({ y: Math.min(...B.ys), pts: [veg(A, true), veg(B, false)] });
         }
-        kotes.push(pts);
-        d.push("M" + pts.map((p) => p.join(",")).join("L"));
+        kotes.push(lista);
+        for (const l of lista) d.push("M" + l.pts.map((p) => p.join(",")).join("L"));
       }
 
       // 4) útvonal egy bejárattól egy vágányig, a szükséges összekötéseken át
@@ -837,11 +842,17 @@
         if (!cel) return null;
         const innen = sorrend.find((x) => x.id === beId) || sorrend[0];
         const i = sorrend.indexOf(innen), j = sorrend.indexOf(cel);
-        const pts = [];
-        if (j > i) for (let k = i; k < j; k++) pts.push(...kotes[k]);
-        else for (let k = i - 1; k >= j; k--) pts.push(...[...kotes[k]].reverse());
         const veg = cel.terv.ut.get(t);
         if (!veg) return null;
+        // a célvágány ahhoz a vezérvágányhoz tartozik, amelyikről a váltósora indul; ahol
+        // több kiágazás van, azt választjuk, amelyik oda érkezik
+        const kell = (lista, utolso) => {
+          const cely = utolso ? veg[0][1] : null;
+          return lista.find((l) => l.y === cely) || lista[0];
+        };
+        const pts = [];
+        if (j > i) for (let k = i; k < j; k++) pts.push(...kell(kotes[k], k === j - 1).pts);
+        else for (let k = i - 1; k >= j; k--) pts.push(...[...kell(kotes[k], k === j).pts].reverse());
         return [...pts, ...veg];
       };
       return { d, peel, ut, van: (beId, t) => !!ut(beId, t), tx };
@@ -961,8 +972,10 @@
           be2 = be + koz,
           x1 = bal ? 72 : P.W - 72,
           x2 = bal ? 150 : P.W - 150;
-        const pts = [[x0, be], [x1, be], [x2, alja], [fx, alja]],
-          pts2 = [[x0, be2], [x1 + koz * j, be2], [x2 + koz * j, alja2], [fx, alja2]];
+        // A felső vágány fordul lefelé később (beljebb): így végig a másik fölött marad.
+        // Fordítva a lefelé fordulása rögtön átvágná a másik vízszintes szakaszát.
+        const pts = [[x0, be], [x1 + koz * j, be], [x2 + koz * j, alja], [fx, alja]],
+          pts2 = [[x0, be2], [x1, be2], [x2, alja2], [fx, alja2]];
         return {
           pts, pts2, tx,
           bazis: { id: def.id, x: fx, ys: [alja, alja2], enged: def.tracks || null, kifut: false },
