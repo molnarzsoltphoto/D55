@@ -22,7 +22,7 @@
 
     const ic = (t) => /^8\d\d$/.test(String(t.number || t.id || ""));
     // 2 = InterCity, 1 = egyéb menetrendi vonat, 0 = tehervonat
-    const szint = (t) => (ic(t) ? 2 : t.menetrendi || t.kind === "passenger" ? 1 : 0);
+    const szint = (t) => (t.kind === "freight" ? 0 : ic(t) ? 2 : t.menetrendi || t.kind === "passenger" ? 1 : 0);
 
     if (typeof globalThis.autoOutside === "function" && !globalThis.autoOutside._v40elsobbseg) {
       const prev = globalThis.autoOutside;

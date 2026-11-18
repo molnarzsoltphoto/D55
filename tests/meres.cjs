@@ -65,7 +65,7 @@ const MAG = Number(process.argv[3] || 1);
       sim.tick(0.1);
       if (i % 10) continue;
       for (const t of sim.trains) {
-        if (!t.menetrendi) {
+        if (t.kind === "freight" || !t.menetrendi) {
           latott.set(t.id, { oszt: "teher", kesz: t.finished, delay: t.delay || 0 });
           continue;
         }

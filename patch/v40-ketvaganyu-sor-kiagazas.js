@@ -549,7 +549,7 @@
           const offset = day * 1440, plan = branchPlan(svc, offset), id = svc.number + (day === 0 ? "" : "/D" + day);
           if (plan.at(-1).dep < start) { this.btSpawned[key] = "past"; continue; }
           if (this.trains.some((t) => t.id === id)) { this.btSpawned[key] = true; continue; }
-          const base = { id, number: svc.number, delay: 0, finished: false, history: [], plan, menetrendi: true, kind: "passenger", maxSpeed: 120, endStation: plan.at(-1).station, sourceLines: svc.lines || [], branchService: true };
+          const base = { id, number: svc.number, delay: 0, finished: false, history: [], plan, menetrendi: true, kind: svc.freight ? "freight" : "passenger", maxSpeed: svc.freight ? 80 : 120, endStation: plan.at(-1).station, sourceLines: svc.lines || [], branchService: true };
           if (fromDef && plan[0].arr >= start) {
             // a kiágazás felől érkezik
             const lead = (fromDef.travel ?? TRAVEL) + THROAT + 1;

@@ -3623,7 +3623,7 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
           const offset = day * 1440, plan = branchPlan(svc, offset), id = svc.number + (day === 0 ? "" : "/D" + day);
           if (plan.at(-1).dep < start) { this.btSpawned[key] = "past"; continue; }
           if (this.trains.some((t) => t.id === id)) { this.btSpawned[key] = true; continue; }
-          const base = { id, number: svc.number, delay: 0, finished: false, history: [], plan, menetrendi: true, kind: "passenger", maxSpeed: 120, endStation: plan.at(-1).station, sourceLines: svc.lines || [], branchService: true };
+          const base = { id, number: svc.number, delay: 0, finished: false, history: [], plan, menetrendi: true, kind: svc.freight ? "freight" : "passenger", maxSpeed: svc.freight ? 80 : 120, endStation: plan.at(-1).station, sourceLines: svc.lines || [], branchService: true };
           if (fromDef && plan[0].arr >= start) {
             // a kiágazás felől érkezik
             const lead = (fromDef.travel ?? TRAVEL) + THROAT + 1;
@@ -4625,7 +4625,7 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
 
     const ic = (t) => /^8\d\d$/.test(String(t.number || t.id || ""));
     // 2 = InterCity, 1 = egyéb menetrendi vonat, 0 = tehervonat
-    const szint = (t) => (ic(t) ? 2 : t.menetrendi || t.kind === "passenger" ? 1 : 0);
+    const szint = (t) => (t.kind === "freight" ? 0 : ic(t) ? 2 : t.menetrendi || t.kind === "passenger" ? 1 : 0);
 
     if (typeof globalThis.autoOutside === "function" && !globalThis.autoOutside._v40elsobbseg) {
       const prev = globalThis.autoOutside;
@@ -5064,21 +5064,24 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
       return null;
     }
 
-    // Menetvonal keresése a vonal végéig. Visszaad egy plan-t, vagy null-t.
-    function menetvonal(s, at, dir, legkorabban) {
+    // Menetvonal keresése a célállomásig (cel nélkül a vonal végéig). Plan-t ad, vagy null-t.
+    function menetvonal(s, at, dir, legkorabban, cel) {
       s.ensureBlocks();
       const plan = [];
       let akt = at,
         t = legkorabban;
       plan.push({ station: akt, arr: null, dep: t });
       while (true) {
+        if (cel != null && akt === cel) break;
         const kov = kovetkezoFoszolgalat(akt, dir);
         if (kov == null) break;
+        if (cel != null && (dir === 1 ? kov > cel : kov < cel)) break;
         const sec = s.blockSystem.section(akt, kov);
         const hossz = Math.abs(km(kov) - km(akt));
         const futas = (hossz / SZAMITASI_SEBESSEG) * 60;
         const be = legkorabbiBelepes(szakaszId(akt, kov), t, futas, dir, !!sec?.double);
-        if (be == null) return plan.length > 2 ? plan : null; // ameddig eljut, addig megy
+        // célállomásig muszáj eljutnia; cél nélkül ameddig eljut, addig megy
+        if (be == null) return cel != null ? null : plan.length > 2 ? plan : null;
         plan.at(-1).dep = be;
         const erk = be + futas;
         // a megállóhelyeket is betesszük, hogy a rajz és a helyzetszámítás egyenletes legyen
@@ -5090,8 +5093,106 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
         akt = kov;
         t = erk + ALLOMASI_IDO;
       }
-      return plan.length > 1 ? plan : null;
+      return plan.length > 1 || cel === at ? plan : null;
     }
+
+    // A cél nem mindig forgalmi szolgálati hely (a Dunai Finomító nem az): a menetvonal a
+    // legközelebbi szolgálati helyig készül, onnan a maradék megállóhelyeket menetidővel
+    // fűzzük hozzá.
+    function menetvonalIg(s, at, dir, legkorabban, cel) {
+      let utolso = cel;
+      while (utolso !== at && !STATIONS[utolso].control) utolso -= dir;
+      const plan = menetvonal(s, at, dir, legkorabban, utolso);
+      if (!plan || utolso === cel) return plan;
+      const veg = plan.at(-1);
+      veg.dep = veg.arr; // a szolgálati helyen nem áll meg, továbbmegy a célig
+      for (let n = utolso + dir; ; n += dir) {
+        const t = veg.arr + (Math.abs(km(n) - km(utolso)) / SZAMITASI_SEBESSEG) * 60;
+        plan.push({ station: n, arr: t, dep: n === cel ? t : t });
+        if (n === cel) break;
+      }
+      return plan;
+    }
+
+    // ── Viszonylatok ────────────────────────────────────────────────────────────
+    // A teher eddig a vonal végpontjain keletkezett véletlenszerűen, és végigment a
+    // vonalon. A valóságban csak néhány viszonylatban jár, a Keleti (Ferencváros felőli)
+    // ág és négy célpont között, oda-vissza.
+    const KELETI = "kelenfold-keleti";
+    const VISZONYLAT = [
+      { nev: "Győr", ag: "kelenfold-gyor" },
+      { nev: "Dunaújváros", ag: "pszabolcs-dunaujvaros" },
+      { nev: "Dunai Finomító", allomas: 11 },
+      { nev: "Kaposvár", ag: "dombovar-kaposvar" },
+    ];
+    const NAPI = 6; // viszonylatonként és irányonként ennyi menet naponta
+
+    // A megtervezett tehermenetvonalat is beírjuk a foglaltsági táblába, hogy a következő
+    // teher már ehhez is rést keressen, ne csak a személyforgalomhoz.
+    function rogzit(plan, dir) {
+      const t = foglaltsag(),
+        k = plan.filter((x) => STATIONS[x.station].control);
+      for (let i = 0; i < k.length - 1; i++)
+        (t[szakaszId(k[i].station, k[i + 1].station)] ||= []).push({ be: k[i].dep, ki: k[i + 1].arr, dir });
+    }
+
+    function viszonylatiSzolgalatok(s) {
+      const LBr = globalThis.LineBranches;
+      const ki = [];
+      for (let i = 0; i < VISZONYLAT.length; i++) {
+        const r = VISZONYLAT[i],
+          cel = r.allomas != null ? r.allomas : LBr?.byId?.(r.ag)?.station;
+        if (cel == null) continue;
+        for (const vissza of [false, true]) {
+          const honnan = vissza ? cel : 1,
+            hova = vissza ? 1 : cel,
+            dir = honnan === hova ? (vissza ? -1 : 1) : hova > honnan ? 1 : -1;
+          for (let k = 0; k < NAPI; k++) {
+            // nyers indulási idő, viszonylatonként eltolva; innen keresünk szabad menetvonalat
+            const nyers = (i * 41 + (vissza ? 137 : 0) + k * Math.round(1440 / NAPI)) % 1440;
+            let plan = null;
+            for (let csuszas = 0; csuszas <= 240 && !plan; csuszas += 5) {
+              const t0 = (nyers + csuszas) % 1440;
+              plan =
+                honnan === hova
+                  ? [{ station: honnan, arr: t0, dep: t0 + ALLOMASI_IDO }]
+                  : menetvonalIg(s, honnan, dir, t0, hova);
+            }
+            if (!plan) continue;
+            if (honnan !== hova) rogzit(plan, dir);
+            const szam = String(80000 + i * 100 + (vissza ? 50 : 0) + k);
+            ki.push({
+              id: "F" + szam,
+              number: szam,
+              from: vissza ? r.ag || null : KELETI,
+              to: vissza ? KELETI : r.ag || null,
+              stops: plan.map((x) => ({
+                station: x.station,
+                arr: Math.round(x.arr ?? x.dep),
+                dep: Math.round(x.dep),
+              })),
+              dir,
+              lines: [],
+              freight: true,
+            });
+          }
+        }
+      }
+      return ki;
+    }
+
+    // A véletlen teherindítás helyére a viszonylati menetrend lép: a motor saját
+    // teherindítóját kikapcsoljuk (nextFreight = Infinity), a meneteket a kiágazási
+    // menetrendbe tesszük, onnan a branchTraffic indítja őket.
+    const prevReal = P.realTraffic;
+    P.realTraffic = function () {
+      const lista = (globalThis.BRANCH_TIMETABLE ||= []);
+      if (!lista.some((x) => x.freight)) {
+        try { lista.push(...viszonylatiSzolgalatok(this)); } catch (e) { console.warn("teherviszonylat:", e); }
+      }
+      this.nextFreight = Infinity;
+      return prevReal.call(this);
+    };
 
     const prevAdd = P.add;
     P.add = function (at, dir, dep) {
