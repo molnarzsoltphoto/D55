@@ -991,15 +991,27 @@
         };
       }
 
+      // Hol hagyja el a pultot az ág? A valódi helyszínrajzon a kijáratok szűk sávban,
+      // egymás mellett mennek ki, és a távolabbi vágányokat hosszú lapos ferde vágány köti
+      // hozzájuk. Ezért a saját torkú ág a vonali vágányok mellé sorakozik; az átmenő
+      // fővágány magasságát csak akkor tartjuk meg, ha az amúgy is szomszédos.
       const down = def.vert === "down",
         outer = down ? Math.max(...ys) : Math.min(...ys),
-        // az átmenő fővágányok, ha meg vannak adva — a pár egyenesen ezekbe fut be
         at = (def.atmeno || []).filter((t) => g.tracks.includes(t)),
         sajatTorok = !!def.ownThroat,
         kozAlap = def.double ? 26 : 0,
-        yb = at.length === 2 ? g.y(at[0]) : down ? outer + 150 + k * (36 + kozAlap) : outer - 44 - k * (36 + kozAlap),
+        LEP = 58, // egy vágányköznyi lépés
+        atY = at.length === 2 ? [g.y(at[0]), g.y(at[1])] : null,
+        szomszedos = atY && Math.abs((down ? Math.min(...atY) : Math.max(...atY)) - outer) <= 2 * LEP,
+        sorolt = sajatTorok && !szomszedos,
+        kozS = def.double ? LEP : 0,
+        yb = atY && szomszedos
+          ? atY[0]
+          : sorolt
+            ? down ? outer + LEP + 29 + k * (2 * LEP) : outer - LEP - 29 - kozS - k * (2 * LEP)
+            : down ? outer + 150 + k * (36 + kozAlap) : outer - 44 - k * (36 + kozAlap),
         // a kétvágányú ág két vágánya egymás alatt, a fővonaltól kifelé
-        yb2 = at.length === 2 ? g.y(at[1]) : down ? yb + kozAlap : yb - kozAlap,
+        yb2 = atY && szomszedos ? atY[1] : sorolt ? yb + kozS : down ? yb + kozAlap : yb - kozAlap,
         koz = def.double ? Math.abs(yb2 - yb) : 0,
         ly = down ? Math.max(yb, yb2) + 24 : Math.min(yb, yb2) - 21,
         // a saját torkú ág a torokig párhuzamosan fut be; a többi a vonali vágányba köt

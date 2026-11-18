@@ -111,7 +111,7 @@
       if (!jelolt.length) return null;
       const sorrend = peronSorrend(station, train, jelolt);
       // az ág kedvelt vágánya előre (a börgöndi vonat a II. csonkára)
-      const kedvelt = (def?.prefer || []).filter((x) => sorrend.includes(x));
+      const kedvelt = (def?.prefer || def?.atmeno || []).filter((x) => sorrend.includes(x));
       return kedvelt.length ? kedvelt[0] : sorrend[0];
     };
 
