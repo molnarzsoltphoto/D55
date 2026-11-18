@@ -213,7 +213,8 @@
       // a 30a Érd felsőt érintő vonatai itt hagyják el a modellt (Tárnok felé), saját váltókörzettel
       { id: "erdfelso-szfvar", station: 8, side: "R", vert: "down", name: "Székesfehérvár felé", double: true, ownThroat: true, travel: 3 },
       { id: "pszabolcs-dunaujvaros", station: 14, side: "R", vert: "up", name: "Dunaújváros felé" },
-      { id: "pszabolcs-szfvar", station: 14, side: "R", vert: "down", name: "Székesfehérvár felé (Börgöndön át)" },
+      // a börgöndi vonat mindig a II. csonkavágányra jön
+      { id: "pszabolcs-szfvar", station: 14, side: "R", vert: "down", name: "Székesfehérvár felé (Börgöndön át)", prefer: ["II"] },
       { id: "sarbogard-szfvar", station: 18, side: "L", vert: "down", name: "Székesfehérvár felé" },
       { id: "retszilas-dunaujvaros", station: 19, side: "L", name: "Dunaújváros felé" },
       { id: "retszilas-szekszard", station: 19, side: "R", name: "Baja felé (Szekszárd, Bátaszék)" },
@@ -554,14 +555,16 @@
             // a kiágazás felől érkezik
             const lead = (fromDef.travel ?? TRAVEL) + THROAT + 1;
             if (plan[0].arr - lead > this.time) continue;
-            const track = STATIONS[fromDef.station].tracks.find((tr) => !this.closed[`${fromDef.station}:${tr}`] && !this.busy(fromDef.station, tr, id));
+            const track = this.agVagany
+              ? this.agVagany(fromDef.station, fromDef, id, base)
+              : STATIONS[fromDef.station].tracks.find((tr) => !this.closed[`${fromDef.station}:${tr}`] && !this.busy(fromDef.station, tr, id));
             if (!track) continue;
             this.trains.push({ ...base, at: fromDef.station, dir: svc.dir || (fromDef.side === "L" ? 1 : -1), track, dep: plan[0].dep, phase: "branchRequest", lineBranch: { id: fromDef.id, direction: "in" }, scheduledBranch: true, exitBranch: svc.to || null });
           } else if (plan.length === 1) {
             // a csatlakozó állomásról indul a kiágazásra
             if (!toDef) { this.btSpawned[key] = "past"; continue; }
             if (plan[0].dep - 3 > this.time) continue;
-            const track = this.free(toDef.station);
+            const track = this.agVagany ? this.agVagany(toDef.station, toDef, id, base) : this.free(toDef.station);
             if (!track) continue;
             this.trains.push({ ...base, at: toDef.station, dir: toDef.side === "L" ? -1 : 1, track, dep: Math.max(this.time, plan[0].dep), phase: "parked", history: [{ station: toDef.station, arr: this.time }], lineBranch: { id: toDef.id, direction: "out" } });
           } else {
@@ -570,7 +573,7 @@
             if (first > this.time + 3) continue;
             let at = plan[0].station;
             if (first < start) { const past = plan.filter((x) => STATIONS[x.station].control && x.dep <= start); if (past.length) at = past.at(-1).station; }
-            const track = this.free(at);
+            const track = this.agVagany ? this.agVagany(at, null, id, base) : this.free(at);
             if (!track) continue;
             const point = plan.find((x) => x.station === at);
             this.trains.push({ ...base, at, dir: svc.dir, track, dep: Math.max(this.time, point.dep), phase: "parked", delay: Math.max(0, this.time - point.dep), viaBranch: svc.to || null });
@@ -647,6 +650,18 @@
     }
     // Kétvágányú oldalon: mindkét vonali vágány a saját váltóján (x=215 / 985) csatlakozik az állomás saját térfelén
     // lévő vágányokhoz; a két vonali vágány közt X alakú átmenő kitérő (x 178–212 / 988–1022), így bármelyikről bármelyik vágány elérhető.
+    // A pulton a vágányok alapból fentről lefelé, emelkedő sorrendben állnak. Ahol a
+    // valóságban fordítva van (Pusztaszabolcson az 1. vágány van alul), megfordítjuk —
+    // csak a kirajzolás sorrendje fordul, a vágányok neve és sorrendje a modellben marad.
+    const FORDITOTT = { 14: true };
+    const alapGeom = globalThis.geom;
+    globalThis.geom = function (s) {
+      const g = alapGeom(s);
+      if (!FORDITOTT[s]) return g;
+      const n = g.tracks.length;
+      return { ...g, y: (tr) => 112 + (n - 1 - g.tracks.indexOf(tr)) * 58 };
+    };
+
     const XO = { L: [178, 212], R: [1022, 988] }; // átmenő kitérő két vége (vonal felől → állomás felé)
     const TX = { L: 350, R: 850 }; // innen futnak egyenesen a vágányok (a torok vége)
     // A fővonal átmenő fővágányai állomásonként és állomásvégenként: a vonali vágánypár
@@ -993,12 +1008,11 @@
       // peronok: a csoport vágányai közt futó sáv. Ahol nincs csoport, ott nincs peron —
       // az a vágány a tehervonatoké.
       const peronTalan = new Set(window.VaganyTeher?.[s] || []);
-      for (const csoport of window.VaganyPeron?.[s] || []) {
-        const ys = csoport.filter((t) => g.tracks.includes(t)).map((t) => g.y(t)).sort((a, z) => a - z);
-        for (let i = 0; i + 1 < ys.length; i += 2) {
-          const ky = (ys[i] + ys[i + 1]) / 2;
-          html += `<rect x="452" y="${ky - 3}" width="296" height="12" rx="6" fill="#9cb391" stroke="#7d9a72" stroke-width="1"/>`;
-        }
+      for (const peron of window.VaganyPeron?.[s] || []) {
+        const ys = peron.filter((t) => g.tracks.includes(t)).map((t) => g.y(t)).sort((a, z) => a - z);
+        if (ys.length < 2) continue;
+        const ky = (ys[0] + ys[ys.length - 1]) / 2;
+        html += `<rect x="452" y="${ky - 3}" width="296" height="12" rx="6" fill="#9cb391" stroke="#7d9a72" stroke-width="1"/>`;
       }
       g.tracks.forEach((tr) => {
         const y = g.y(tr),
@@ -1062,7 +1076,9 @@
       html += bands + lights + stubTrains + vgCimke;
       g.tracks.forEach((tr) => {
         const y = g.y(tr);
-        html += svgSignal(s, "KL-" + tr, 380, y, -1) + svgSignal(s, "KR-" + tr, 820, y, 1) + svgButton("KL-" + tr, 412, y) + svgButton("KR-" + tr, 788, y);
+        // csonkavágányra csak arról a végéről van kijárat, amelyikről vágányút vezet rá
+        if (torkok.L.ut.has(tr)) html += svgSignal(s, "KL-" + tr, 380, y, -1) + svgButton("KL-" + tr, 412, y);
+        if (torkok.R.ut.has(tr)) html += svgSignal(s, "KR-" + tr, 820, y, 1) + svgButton("KR-" + tr, 788, y);
       });
       html +=
         svgSignal(s, "A", 145, sides.L.in, 1) +

@@ -16,14 +16,19 @@
   //   11–15 csak a Keleti felé (a két vágány alul átmegy a Déli vágányain)
   const KORLAT = {
     1: { L: ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"] }, // Déli felé
+    // Pusztaszabolcson a II. csonkavágány: Budapest felé nincs kijárata, csak a pécsi
+    // végén csatlakozik — a székesfehérvári (börgöndi) menetek állnak rajta.
+    14: { L: ["I", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"] },
   };
   // a pult rajza is ebből dolgozik: a fővonal torka csak ezeket a vágányokat éri el
   window.VaganyKorlat = KORLAT;
 
-  // Peronok: egy csoport vágányai közös peronon vannak. Amelyik vágány egyik csoportban
-  // sincs, annál nincs peron — ott utasvonat nem állhat meg, az a tehervonatoké.
+  // Peronok: egy bejegyzés egy peron, a mellette lévő két vágánnyal. Amelyik vágány egyik
+  // bejegyzésben sincs, annál nincs peron — ott utasvonat nem állhat meg, az a tehervonatoké.
   const PERON = {
-    1: [["I", "II"], ["III", "IV"], ["V", "VI"], ["VII", "VIII", "IX", "X"], ["XIV", "XV"]],
+    1: [["I", "II"], ["III", "IV"], ["V", "VI"], ["VII", "VIII"], ["IX", "X"], ["XIV", "XV"]],
+    // Pusztaszabolcs: 1-3 közös peron (a csonka II. mellett kétoldalt), és 4-5
+    14: [["I", "II"], ["II", "III"], ["IV", "V"]],
   };
   const PERONTALAN = {};
   for (const [st, csoportok] of Object.entries(PERON)) {
@@ -78,6 +83,49 @@
       if (!teh || !teh.length || !t) return jelolt;
       const oda = jelolt.filter((x) => teh.includes(x)), tobbi = jelolt.filter((x) => !teh.includes(x));
       return teherE(t) ? [...oda, ...tobbi] : [...tobbi, ...oda];
+    };
+
+    // Melyik torkot használja a vonat ezen az állomáson a terve szerint? Egy csonkavágányra
+    // csak az állhat, amelyik nem a zárt vég felé megy tovább.
+    const tervOldalak = (station, train) => {
+      const ki = [];
+      for (const x of train?.plan || []) {
+        if (x.station < station && !ki.includes("L")) ki.push("L");
+        if (x.station > station && !ki.includes("R")) ki.push("R");
+      }
+      return ki;
+    };
+
+    // Kiágazási menet fogadóvágánya. A kiágazási menetrend eddig a nyers „első szabad
+    // vágányat" vette, az ág saját listáját és a peronbesorolást is megkerülve — így jött a
+    // börgöndi vonat az I.-re a II. csonkavágány helyett, és a teher a peronos vágányra.
+    P.agVagany = function (station, def, trainId, train) {
+      let jelolt = (STATIONS[station]?.tracks || []).filter(
+        (x) => (!def?.tracks || def.tracks.includes(x)) && szabad(this, station, x, trainId),
+      );
+      // ahová a terve szerint továbbmegy, arra a végére vezetnie kell vágányútnak
+      for (const oldal of tervOldalak(station, train)) {
+        const l = lista(station, oldal);
+        if (l) jelolt = jelolt.filter((x) => l.includes(x));
+      }
+      if (!jelolt.length) return null;
+      const sorrend = peronSorrend(station, train, jelolt);
+      // az ág kedvelt vágánya előre (a börgöndi vonat a II. csonkára)
+      const kedvelt = (def?.prefer || []).filter((x) => sorrend.includes(x));
+      return kedvelt.length ? kedvelt[0] : sorrend[0];
+    };
+
+    // A menetrendi vonat indításakor a motor a nyers „első szabad vágányat" veszi, és ilyenkor
+    // még nem tudjuk, merre megy tovább. Csonkavágányra ezért nem állítjuk: onnan a rossz
+    // irányba induló menet sosem tudna kijárni (a 4197-es így ragadt a pusztaszabolcsi II.-n).
+    const prevSzabadVagany = P.free;
+    P.free = function (station) {
+      const v = prevSzabadVagany.call(this, station);
+      const k = KORLAT[station];
+      if (!k || !v) return v;
+      const atmeno = (STATIONS[station].tracks || []).filter((x) => Object.values(k).every((l) => l.includes(x)));
+      if (!atmeno.length || atmeno.includes(v)) return v;
+      return atmeno.find((x) => szabad(this, station, x, null)) || v;
     };
 
     const prevFree = P.freeReceivingTrack;
