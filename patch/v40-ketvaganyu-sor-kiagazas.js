@@ -212,9 +212,11 @@
       { id: "kelenfold-gyor", station: 1, side: "R", vert: "down", name: "Győr felé", double: true, ownThroat: true, travel: 3, atmeno: ["XIV", "XV"] },
       // a 30a Érd felsőt érintő vonatai itt hagyják el a modellt (Tárnok felé), saját váltókörzettel
       { id: "erdfelso-szfvar", station: 8, side: "R", vert: "down", name: "Székesfehérvár felé", double: true, ownThroat: true, travel: 3 },
-      { id: "pszabolcs-dunaujvaros", station: 14, side: "R", vert: "up", name: "Dunaújváros felé" },
+      // Pusztaszabolcs pécsi végén három irány indul, mindegyik saját váltókörzetből:
+      // így egyszerre lehet vágányút Dunaújváros, Pécs és Székesfehérvár felé.
+      { id: "pszabolcs-dunaujvaros", station: 14, side: "R", vert: "up", name: "Dunaújváros felé", ownThroat: true },
       // a börgöndi vonat mindig a II. csonkavágányra jön
-      { id: "pszabolcs-szfvar", station: 14, side: "R", vert: "down", name: "Székesfehérvár felé (Börgöndön át)", prefer: ["II"] },
+      { id: "pszabolcs-szfvar", station: 14, side: "R", vert: "down", name: "Székesfehérvár felé (Börgöndön át)", ownThroat: true, prefer: ["II"] },
       { id: "sarbogard-szfvar", station: 18, side: "L", vert: "down", name: "Székesfehérvár felé" },
       { id: "retszilas-dunaujvaros", station: 19, side: "L", name: "Dunaújváros felé" },
       { id: "retszilas-szekszard", station: 19, side: "R", name: "Baja felé (Szekszárd, Bátaszék)" },
@@ -854,7 +856,7 @@
         outer = down ? Math.max(...ys) : Math.min(...ys),
         // az átmenő fővágányok, ha meg vannak adva — a pár egyenesen ezekbe fut be
         at = (def.atmeno || []).filter((t) => g.tracks.includes(t)),
-        sajatTorok = def.ownThroat && def.double,
+        sajatTorok = !!def.ownThroat,
         kozAlap = def.double ? 26 : 0,
         yb = at.length === 2 ? g.y(at[0]) : down ? outer + 150 + k * (36 + kozAlap) : outer - 44 - k * (36 + kozAlap),
         // a kétvágányú ág két vágánya egymás alatt, a fővonaltól kifelé
@@ -983,7 +985,7 @@
       const stubok = branches.map((def) => {
         const key = def.side + (def.vert === "down" ? "d" : "u"),
           k = (bySide[key] = (bySide[key] || 0) + 1) - 1,
-          si = def.ownThroat && def.double ? (sajatSzam[def.side] = (sajatSzam[def.side] || 0) + 1) - 1 : 0;
+          si = def.ownThroat ? (sajatSzam[def.side] = (sajatSzam[def.side] || 0) + 1) - 1 : 0;
         return { def, st: branchStub(s, def, k, sides, torkok, si) };
       });
       for (const side of ["L", "R"]) for (const d of torkok[side].d) trk(d);
