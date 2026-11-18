@@ -675,7 +675,7 @@
       // (pult széle → torok) is nő, mert ott futnak párhuzamosan a kivezető vágányok, és
       // ott vannak köztük az összekötések.
       const own = (o) => LINE_BRANCHES.filter((b) => b.station === s && b.ownThroat && b.side === o).length;
-      const kulso = (o) => 200 + 70 * own(o),
+      const kulso = (o) => 200 + 120 * own(o),
         torok = (o) => 135 + 150 * own(o),
         sxL = 15 + kulso("L"),
         txL = sxL + torok("L"),
@@ -848,7 +848,7 @@
         const t = ts.reduce((a, b) => ((g.y(a) > g.y(b)) === lent ? a : b));
         return [be.terv.peel.get(t), g.y(t)];
       };
-      let x = P.sx[side];
+      let x = P.sx[side] + 48 * ki; // a kivezető párok torki kitérője után
       for (let i = 0; i + 1 < sorrend.length; i++) {
         const A = sorrend[i], B = sorrend[i + 1], aY = Math.max(...A.ys);
         const lista = [];
@@ -860,7 +860,7 @@
           const hatar = (sorrend.length - 1 - i) * B.ys.length;
           B.ys.forEach((by) => {
             const hely = Math.max(60, (P.szel[side] - x) * ki - 30),
-              dx = Math.min(Math.abs(by - aY) * 0.45, hely / hatar);
+              dx = Math.min(Math.abs(by - aY) * 1.1, hely / hatar);
             lista.push({ y: by, pts: [[x, aY], [x + dx * ki, by]] });
             x += Math.min(dx, 46) * ki; // a következő kiágazás kicsit kijjebb nyílik
           });
@@ -872,6 +872,30 @@
         }
         kotes.push(lista);
         for (const l of lista) d.push("M" + l.pts.map((p) => p.join(",")).join("L"));
+      }
+
+      // 3b) Ellenirányú összekötés. A fenti lánc kifelé haladva csak lefelé ágaztat, így
+      //    csak a legfelső kivezetésről lehet mindhova kijárni: Pusztaszabolcson az I–IV.
+      //    peronos vágányról tolatás nélkül csak Székesfehérvár felé lehetett elmenni, és
+      //    Dunaújváros felől egyetlen peronos vágányra sem lehetett bejárni. Ezért kifelé
+      //    haladva felfelé is összekötjük a szomszédos kivezetéseket, a lefelé ágaztató
+      //    lánc után. Így minden vágányról minden irányba van vágányút, visszatolatás nélkül.
+      x += 26 * ki; // a két lánc ne egy pontban találkozzon
+      for (let i = sorrend.length - 2; i >= 0; i--) {
+        const A = sorrend[i], B = sorrend[i + 1];
+        if (!A.kifut || !B.kifut) continue;
+        const bY = Math.min(...B.ys), hatar = (i + 1) * A.ys.length;
+        const vegek = [];
+        for (const ay of [...A.ys].sort((a, b) => b - a)) {
+          const hely = Math.max(60, (P.szel[side] - x) * ki - 30),
+            dx = Math.min(Math.abs(ay - bY) * 1.1, hely / hatar);
+          d.push(`M${x} ${bY}L${x + dx * ki} ${ay}`);
+          vegek.push(x + dx * ki);
+          x += Math.min(dx, 46) * ki;
+        }
+        // a következő kötés csak ott kezdődhet, ahol az előző már beért: különben a menet
+        // visszafelé keresné a kiágazást, és a lánc megszakad
+        x = Math.max(...vegek.map((v) => v * ki)) * ki;
       }
 
       // 4) útvonal egy bejárattól egy vágányig, a szükséges összekötéseken át
@@ -1075,9 +1099,12 @@
         tx,
         // saját torkú ág: a torokterv bejárata, onnan indul a saját váltósora
         bazis: sajatTorok ? { id: def.id, x: bx, ys: koz ? [yb, yb2] : [yb], at, enged: def.tracks || null, kifut: true } : null,
-        // a pár két vágánya közt átmenő kitérő
+        // A pár két vágánya közti átmenő kitérő a torok elején, még az összekötő lánc
+        // előtt. Kint, a vonal felé eső szakaszon hiába volt: a felső vágányra érkező
+        // menet ott már túl lett volna a többi irányba vivő kiágazáson (Kelenföldön az
+        // I. és III. vágányról csak Székesfehérvár felé lehetett elmenni).
         letraD: sajatTorok && koz
-          ? [`M${o(0.5)} ${yb}L${o(0.8)} ${yb2}`, `M${o(0.5)} ${yb2}L${o(0.8)} ${yb}`]
+          ? [`M${bx} ${yb}L${bx - 40 * j} ${yb2}`, `M${bx} ${yb2}L${bx - 40 * j} ${yb}`]
           : null,
         label: [bal ? 20 : P.W - 20, ly],
         anchor: bal ? "start" : "end",
