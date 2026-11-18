@@ -732,12 +732,28 @@
     // vágány pedig az átmenő fővágány: oda a vonal egyenesen befut.
     function bejarat(bazisok, tracks, vegX, tx, irany, yOf) {
       const [A, B] = bazisok, yA = A[1], yB = B[1];
-      const fel = tracks.filter((t) => yOf(t) < yA).sort((a, b) => yOf(b) - yOf(a)),
-        le = tracks.filter((t) => yOf(t) > yB).sort((a, b) => yOf(a) - yOf(b)),
-        kozt = tracks.filter((t) => yOf(t) >= yA && yOf(t) <= yB),
-        f = letra(A, fel, vegX, tx, irany, yOf),
+      let fel = tracks.filter((t) => yOf(t) < yA).sort((a, b) => yOf(b) - yOf(a)),
+        le = tracks.filter((t) => yOf(t) > yB).sort((a, b) => yOf(a) - yOf(b));
+      const kozt = tracks.filter((t) => yOf(t) >= yA && yOf(t) <= yB);
+      // Ha minden vágány egy oldalra esik, a két vezérvágány közt elosztjuk őket, különben
+      // a másik a semmibe tartana. A csoporttól távolabbi vezérvágány kapja a közelebbi
+      // vágányokat: így a két váltósor párhuzamos marad, és nem keresztezik egymást.
+      if (yA !== yB && !fel.length && le.length > 1) {
+        const n = Math.floor(le.length / 2);
+        fel = le.slice(0, n);
+        le = le.slice(n);
+      } else if (yA !== yB && !le.length && fel.length > 1) {
+        const n = Math.floor(fel.length / 2);
+        le = fel.slice(0, n);
+        fel = fel.slice(n);
+      }
+      const f = letra(A, fel, vegX, tx, irany, yOf),
         l = letra(B, le, vegX, tx, irany, yOf),
         ki = { d: [...f.d, ...l.d], ut: new Map([...f.ut, ...l.ut]), peel: new Map([...f.peel, ...l.peel]) };
+      // Egyvágányú bejáratnál a két bázis egy magasságban, egymás mögött van: ha nincs
+      // közéjük eső átmenő vágány, ami összekötné őket, a vezérvágány a hátsó bázis előtt
+      // a semmiben érne véget. A köztük lévő szakaszt mindig kirajzoljuk.
+      if (yA === yB && A[0] !== B[0]) ki.d.push(`M${A[0]} ${yA}H${B[0]}`);
       for (const t of kozt) {
         const y = yOf(t);
         if (y === yA || y === yB) {
@@ -752,6 +768,20 @@
           ki.d.push(`M${A[0]} ${yA}L${kx} ${y}`);
           ki.peel.set(t, kx);
           ki.ut.set(t, [A, [kx, y], [tx, y]]);
+        }
+      }
+      // Ha egy vezérvágány így sem kap vágányt (egyetlen vágány jut a bejáratnak), nem
+      // hagyjuk csonkán: beleszalad a szomszéd váltósorába, ahogy a kétvágányú bejáratok
+      // összeérnek. Csonkán hagyva a semmibe tartana.
+      if (yA !== yB) {
+        const hasznalt = new Set([...ki.ut.values()].map((u) => u[0][1]));
+        for (const [U, V, sor] of [[A, B, l], [B, A, f]]) {
+          if (hasznalt.has(U[1]) || !hasznalt.has(V[1]) || !sor.d[0]) continue;
+          const n = (sor.d[0].match(/-?\d+(\.\d+)?/g) || []).map(Number);
+          if (n.length < 4) continue;
+          const [x1, y1, x2, y2] = n,
+            r = Math.min(0.45, 90 / Math.max(1, Math.abs(x2 - x1)));
+          ki.d.push(`M${U[0]} ${U[1]}L${Math.round(x1 + (x2 - x1) * r)} ${Math.round(y1 + (y2 - y1) * r)}`);
         }
       }
       return ki;
@@ -774,7 +804,13 @@
       const tulaj = new Map();
       const n = sorrend.length;
       vaganyok.forEach((t, i) => tulaj.set(t, sorrend[Math.min(n - 1, Math.floor((i * n) / vaganyok.length))]));
-      for (const be of sorrend) for (const t of g.tracks) if (be.ys.includes(g.y(t))) tulaj.set(t, be);
+      // A bejárat magasságában lévő vágány csak akkor az övé, ha tényleg az ő átmenője:
+      // a kivezetések egymás mellé sorakoznak, így egy ág vezérvágánya véletlenül eshet egy
+      // állomási vágány magasságába (Kelenföldön a Győr felé a VII–VIII-éba), azt nem szabad
+      // elvennie a fővonaltól. Az ág a saját átmenőjét kapja meg.
+      for (const be of sorrend)
+        if (be.id === "fo") for (const t of g.tracks) { if (be.ys.includes(g.y(t))) tulaj.set(t, be); }
+      for (const be of sorrend) for (const t of be.at || []) if (g.tracks.includes(t)) tulaj.set(t, be);
       for (const t of g.tracks) {
         const be = tulaj.get(t);
         if (be.enged && be.enged.includes(t)) continue;
@@ -978,7 +1014,7 @@
           pts2 = [[x0, be2], [x1, be2], [x2, alja2], [fx, alja2]];
         return {
           pts, pts2, tx,
-          bazis: { id: def.id, x: fx, ys: [alja, alja2], enged: def.tracks || null, kifut: false },
+          bazis: { id: def.id, x: fx, ys: [alja, alja2], at, enged: def.tracks || null, kifut: false },
           // A 2. vágány külön váltóval tér be az 1.-be, különben csak a saját átmenő
           // vágányát érné el: így mindkét vágányról ki lehet járni az egész váltósorra.
           // Egyetlen ferde vágány, nem átmenő kitérő — a pár így sem keresztezi magát.
@@ -1007,12 +1043,12 @@
         LEP = 58, // egy vágányköznyi lépés
         atY = at.length === 2 ? [g.y(at[0]), g.y(at[1])] : null,
         szomszedos = atY && Math.abs((down ? Math.min(...atY) : Math.max(...atY)) - outer) <= 2 * LEP,
-        sorolt = sajatTorok && !!atY && !szomszedos,
+        sorolt = sajatTorok && !szomszedos,
         kozS = def.double ? LEP : 0,
         yb = atY && szomszedos
           ? atY[0]
           : sorolt
-            ? down ? outer + LEP + 29 + k * (2 * LEP) : outer - LEP - 29 - kozS - k * (2 * LEP)
+            ? down ? outer + LEP * (2 * k + 1) : outer - LEP * (2 * k + 1) - kozS
             : down ? outer + 150 + k * (36 + kozAlap) : outer - 44 - k * (36 + kozAlap),
         // a kétvágányú ág két vágánya egymás alatt, a fővonaltól kifelé
         yb2 = atY && szomszedos ? atY[1] : sorolt ? yb + kozS : down ? yb + kozAlap : yb - kozAlap,
@@ -1036,7 +1072,7 @@
         pts2,
         tx,
         // saját torkú ág: a torokterv bejárata, onnan indul a saját váltósora
-        bazis: sajatTorok ? { id: def.id, x: bx, ys: koz ? [yb, yb2] : [yb], enged: def.tracks || null, kifut: true } : null,
+        bazis: sajatTorok ? { id: def.id, x: bx, ys: koz ? [yb, yb2] : [yb], at, enged: def.tracks || null, kifut: true } : null,
         // a pár két vágánya közt átmenő kitérő
         letraD: sajatTorok && koz
           ? [`M${o(0.5)} ${yb}L${o(0.8)} ${yb2}`, `M${o(0.5)} ${yb2}L${o(0.8)} ${yb}`]
@@ -1099,7 +1135,15 @@
         branches = LB.at(s),
         P = pult(s),
         W = P.W,
-        H = g.h + 64,
+        // A kiágazások vezérvágányai a vonali vágányok fölé/alá sorakoznak: a pultnak
+        // alattuk is kell hely, különben a vonal felirata a váltókörzetbe lóg.
+        hb = Math.max(
+          g.h,
+          ...allomasTerv(s).stubok.map(({ st }) =>
+            Math.max(st.label[1], ...(st.bazis ? st.bazis.ys : []), ...(st.pts2 || st.pts).map((q) => q[1])) + 40,
+          ),
+        ),
+        H = hb + 64,
         blink = Math.floor(Date.now() / 450) % 2 ? 1 : 0.25,
         cnt = sim.d55Counters || { oldas: 0, megallj: 0 };
       let html = `<svg viewBox="0 0 ${W} ${H}" style="min-width:${W}px" role="img" aria-label="D55-jellegű kezelhető játékpult"><defs><pattern id="tiles" width="34" height="34" patternUnits="userSpaceOnUse"><rect width="34" height="34" fill="#bdd7ae"/><path d="M0 33.5H34M33.5 0V34" stroke="#8eac82" stroke-width="1" fill="none"/><path d="M0 .5H34M.5 0V34" stroke="#d6ead0" stroke-width="1" fill="none"/></pattern></defs><rect width="${W}" height="${H}" fill="url(#tiles)"/><text x="23" y="27" fill="#132a19" font-size="19">${esc(STATIONS[s].name.toUpperCase())} · D55-JELLEGŰ JÁTÉKPULT</text><text x="23" y="49" fill="#1a3221" font-size="12">Kétütemű kezelés · első és második lezárás · sematikus vágányrajz</text>`;
@@ -1273,11 +1317,11 @@
         const nb = side === "L" ? CONTROL_IDS[CONTROL_IDS.indexOf(s) - 1] : CONTROL_IDS[CONTROL_IDS.indexOf(s) + 1];
         return nb === undefined ? (side === "L" ? "Vonalvég" : "Vonalvég") : STATIONS[nb].name + " felől";
       };
-      html += `<text x="20" y="${g.h - 18}" fill="#15321e" font-size="12">${esc(names("L"))} · A / VL${sides.L.double ? " · kétvágányú" : ""}</text><text x="${W - 20}" y="${g.h - 18}" text-anchor="end" fill="#15321e" font-size="12">B / VR · ${esc(names("R"))}${sides.R.double ? " · kétvágányú" : ""}</text>`;
+      html += `<text x="20" y="${hb - 18}" fill="#15321e" font-size="12">${esc(names("L"))} · A / VL${sides.L.double ? " · kétvágányú" : ""}</text><text x="${W - 20}" y="${hb - 18}" text-anchor="end" fill="#15321e" font-size="12">B / VR · ${esc(names("R"))}${sides.R.double ? " · kétvágányú" : ""}</text>`;
       // csoportgombok az alsó sorban (a felső eszköztár gombjaival egyenértékűek)
-      html += `<rect x="${P.kozep - 350}" y="${g.h + 4}" width="700" height="54" rx="3" fill="#a9c69b" stroke="#7d9a72"/>`;
+      html += `<rect x="${P.kozep - 350}" y="${hb + 4}" width="700" height="54" rx="3" fill="#a9c69b" stroke="#7d9a72"/>`;
       GROUP_BUTTONS.forEach(([m, label], i) => {
-        const x = P.kozep - 280 + i * 140, y = g.h + 24, on = mode === m;
+        const x = P.kozep - 280 + i * 140, y = hb + 24, on = mode === m;
         html += `<g class="point" tabindex="0" role="button" aria-label="${label}" onclick="setMode('${m}')" onkeydown="if(event.key==='Enter')setMode('${m}')"><circle cx="${x}" cy="${y}" r="12" fill="#1c1c1c" stroke="${on ? "#ffd62e" : "#5d6f57"}" stroke-width="${on ? 4 : 2}"/><circle cx="${x}" cy="${y}" r="7" fill="${m === "stop" ? "#c8322f" : m === "cancel" ? "#e0a12a" : "#e9e6d8"}"/><text x="${x}" y="${y + 27}" text-anchor="middle" fill="#132a19" font-size="11" font-weight="${on ? 700 : 400}">${label}</text></g>`;
       });
       html += "</svg>";
