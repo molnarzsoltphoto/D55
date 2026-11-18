@@ -4278,6 +4278,12 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
         const y = g.y(tr);
         if (peel.L.has(tr) && peel.L.get(tr) < P.tx.L) trk(`M${peel.L.get(tr)} ${y}H${P.tx.L}`);
         if (peel.R.has(tr) && peel.R.get(tr) > P.tx.R) trk(`M${P.tx.R} ${y}H${peel.R.get(tr)}`);
+        // Csonkavágány: amelyik végén nincs váltósor, oda ütközőbak kerül. Eddig a vonal
+        // ott egyszerűen véget ért a levegőben (Pusztaszabolcson a II. Budapest felé).
+        for (const [side, bx, j] of [["L", P.tx.L, -1], ["R", P.tx.R, 1]]) {
+          if (peel[side].has(tr)) continue;
+          html += `<path d="M${bx} ${y}H${bx + 14 * j}M${bx + 14 * j} ${y - 11}V${y + 11}" stroke="#30402f" stroke-width="5" stroke-linecap="round" fill="none"/>`;
+        }
       });
       // peronok: a csoport vágányai közt futó sáv. Ahol nincs csoport, ott nincs peron —
       // az a vágány a tehervonatoké.
