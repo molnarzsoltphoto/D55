@@ -3824,10 +3824,6 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
       const f = letra(A, fel, vegX, tx, irany, yOf),
         l = letra(B, le, vegX, tx, irany, yOf),
         ki = { d: [...f.d, ...l.d], ut: new Map([...f.ut, ...l.ut]), peel: new Map([...f.peel, ...l.peel]) };
-      // Egyvágányú bejáratnál a két bázis egy magasságban, egymás mögött van: ha nincs
-      // közéjük eső átmenő vágány, ami összekötné őket, a vezérvágány a hátsó bázis előtt
-      // a semmiben érne véget. A köztük lévő szakaszt mindig kirajzoljuk.
-      if (yA === yB && A[0] !== B[0]) ki.d.push(`M${A[0]} ${yA}H${B[0]}`);
       for (const t of kozt) {
         const y = yOf(t);
         if (y === yA || y === yB) {
@@ -3844,6 +3840,12 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
           ki.ut.set(t, [A, [kx, y], [tx, y]]);
         }
       }
+      // Egyvágányú bejáratnál a két bázis egy magasságban, egymás mögött van. Ha a hátsó
+      // bázisból indul váltósor, a köztük lévő szakaszt ki kell rajzolni, különben hézag
+      // marad a vezérvágány vége és a váltósor eleje közt. Ha a hátsó bázis üres, nem
+      // rajzolunk oda semmit: az csonk lenne a levegőben.
+      if (yA === yB && A[0] !== B[0] && [...ki.ut.values()].some((u) => u[0] === B))
+        ki.d.push(`M${A[0]} ${yA}H${B[0]}`);
       // Ha egy vezérvágány így sem kap vágányt (egyetlen vágány jut a bejáratnak), nem
       // hagyjuk csonkán: beleszalad a szomszéd váltósorába, ahogy a kétvágányú bejáratok
       // összeérnek. Csonkán hagyva a semmibe tartana.
