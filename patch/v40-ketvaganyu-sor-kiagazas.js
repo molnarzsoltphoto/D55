@@ -632,8 +632,12 @@
       const info = (side) => {
         const nb = side === "L" ? CONTROL_IDS[i - 1] : CONTROL_IDS[i + 1],
           sec = nb === undefined ? null : sim.blockSystem.section(s, nb);
-        if (!sec || !sec.double) return { double: false, sec, in: g.mid, out: g.mid, lanes: [], laneY: () => g.mid };
         const at = ATMENO[s]?.[side];
+        if (!sec || !sec.double) {
+          // egyvágányú oldal: egy vonali vágány, de annak is lehet kijelölt átmenő vágánya
+          const y = at && g.tracks.includes(at[0]) ? g.y(at[0]) : g.mid;
+          return { double: false, sec, in: y, out: y, lanes: [], laneY: () => y };
+        }
         const lanes = sec.lanes.map((ln, k) => ({
           lane: k,
           direction: ln.direction,
@@ -696,7 +700,12 @@
     // A fővonal átmenő fővágányai állomásonként és állomásvégenként: a vonali vágánypár
     // egyenesen ezekbe fut be, a többi vágányt a váltósoron át éri el. Ahol nincs megadva,
     // a vonal a pult közepén jön be (a régi felállás).
-    const ATMENO = { 1: { L: ["III", "IV"], R: ["V", "VI"] } };
+    const ATMENO = {
+      1: { L: ["III", "IV"], R: ["V", "VI"] },
+      // Pusztaszabolcs: a 3-4 az átmenő. Budapest felől a két vonali vágány a IV-re és a
+      // III-ra fut be, Pécs felé a III. megy tovább egyenesen.
+      14: { L: ["IV", "III"], R: ["III"] },
+    };
     // melyik vágányokra vezet egyáltalán vágányút a fővonal felől (null = mindre)
     const KORLAT_LISTA = (s, side) => window.VaganyKorlat?.[s]?.[side] || null;
     function naturalLane(sd, y, m) {
@@ -811,7 +820,13 @@
       // állomási vágány magasságába (Kelenföldön a Győr felé a VII–VIII-éba), azt nem szabad
       // elvennie a fővonaltól. Az ág a saját átmenőjét kapja meg.
       for (const be of sorrend)
-        if (be.id === "fo") for (const t of g.tracks) { if (be.ys.includes(g.y(t))) tulaj.set(t, be); }
+        for (const t of g.tracks) {
+          if (!be.ys.includes(g.y(t))) continue;
+          // akinek külön átmenő listája van, az csak azt viheti el (Kelenföldön a Győr felé
+          // sorakozó pár nem veszi el a VII–VIII-at a fővonaltól)
+          if (be.at && be.at.length && !be.at.includes(t)) continue;
+          tulaj.set(t, be);
+        }
       for (const be of sorrend) for (const t of be.at || []) if (g.tracks.includes(t)) tulaj.set(t, be);
       for (const t of g.tracks) {
         const be = tulaj.get(t);
@@ -827,13 +842,30 @@
       // 2) bejáratonként egy váltósor a saját vágányaira
       let d = [];
       const peel = new Map();
+      // Ahol a szomszédos bejáratokat nem köti össze kifelé haladó lánc (Kelenföldön a
+      // Keleti pár a Déli vágányai ALATT megy át, ott nincs köztük kapcsolat), ott a
+      // mindkettő által engedett vágány mindkét váltósorba bekerül — a valóságban is
+      // mindkét torokból van rá váltó. Lánccal összekötött bejáratoknál erre nincs szükség.
+      const futam = sorrend.map(() => 0);
+      for (let i = 1; i < sorrend.length; i++)
+        futam[i] = futam[i - 1] + (sorrend[i - 1].kifut && sorrend[i].kifut ? 0 : 1);
       sorrend.forEach((be, i) => {
-        const sajat = g.tracks.filter((t) => tulaj.get(t) === be);
+        const sajat = g.tracks.filter(
+          (t) =>
+            tulaj.get(t) === be ||
+            (be.enged && be.enged.includes(t) && futam[sorrend.indexOf(tulaj.get(t))] !== futam[i]),
+        );
         const bazisok = be.ys.length > 1 ? be.ys.map((y) => [be.x, y]) : [[be.x, be.ys[0]], [be.x + 46 * irany, be.ys[0]]];
         const r = bejarat(bazisok, sajat, tx - 24 * i * irany, tx, irany, g.y);
         be.terv = r;
         d.push(...r.d);
-        for (const [t, x] of r.peel) peel.set(t, x);
+        // ahol több bejáratnak is van váltója ugyanarra a vágányra, a vágány vízszintese
+        // a legkülsőig tart (eddig a később feldolgozott bejárat felülírta a korábbit, és
+        // Kelenföldön a VII–VIII. vágány vízszintese nem ért el a Déli váltósoráig)
+        for (const [t, x] of r.peel) {
+          const volt = peel.get(t);
+          peel.set(t, volt == null ? x : irany === 1 ? Math.min(volt, x) : Math.max(volt, x));
+        }
       });
 
       // 3) Összekötő vágány a szomszédos kivezetések közt: a váltókörzetben innen lehet a
@@ -903,6 +935,9 @@
         const cel = tulaj.get(t);
         if (!cel) return null;
         const innen = sorrend.find((x) => x.id === beId) || sorrend[0];
+        // ha ennek a bejáratnak saját váltója van a vágányra, azon megy, nem kell a lánc
+        const kozvetlen = innen.terv?.ut.get(t);
+        if (kozvetlen) return kozvetlen;
         const i = sorrend.indexOf(innen), j = sorrend.indexOf(cel);
         const veg = cel.terv.ut.get(t);
         if (!veg) return null;
@@ -923,6 +958,8 @@
     // Csak a pult állandó geometriájából épül (vágányok, vonali vágányok helye, korlátozás),
     // ezért állomásonként egyszer számoljuk ki.
     const tervCache = new Map();
+    // a tesztek innen kérik le az állomás torokrajzát (rajz ↔ motor összevetéshez)
+    setTimeout(() => { globalThis.D55Terv = allomasTerv; globalThis.D55Oldalak = lineSides; globalThis.D55Pult = pult; }, 0);
     function allomasTerv(s) {
       if (tervCache.has(s)) return tervCache.get(s);
       const g = geom(s), P = pult(s), sides = lineSides(s), terv = {}, bySide = {};
@@ -936,7 +973,7 @@
         const fo = {
           id: "fo",
           x: P.sx[side],
-          ys: sd.double ? sd.lanes.map((l) => l.y).sort((a, b) => a - b) : [g.mid],
+          ys: sd.double ? sd.lanes.map((l) => l.y).sort((a, b) => a - b) : [sd.in],
           enged: lista || null,
           kifut: true, // a vonali vágány a pult széléig fut
         };
@@ -959,9 +996,9 @@
     routePoints = function (s, side, track, kind, lane) {
       const g = geom(s),
         y = g.y(track),
-        m = g.mid,
         sds = lineSides(s),
         sd = sds[side],
+        m = sd.in, // egyvágányú oldalon a vonali vágány magassága (lehet kijelölt átmenő)
         T = allomasTerv(s).terv[side],
         P = pult(s),
         tt = T.ut("fo", track) || [[P.sx[side], m], [P.tx[side], y]],
@@ -1014,7 +1051,7 @@
         tx = P.tx[def.side], // innen futnak egyenesen a vágányok
         j = bal ? 1 : -1,
         x0 = P.szel[def.side], // a pult széle
-        ys = sd.double ? sd.lanes.map((l) => l.y) : [g.mid];
+        ys = sd.double ? sd.lanes.map((l) => l.y) : [sd.in];
       // átmenő kitérő (X) két párhuzamos vágány közt: a két szárny átvágja egymást
       const kitero = (a, b, t1, t2) => {
         const p = (q, r, t) => `${(q[0] + (r[0] - q[0]) * t).toFixed(1)} ${(q[1] + (r[1] - q[1]) * t).toFixed(1)}`;
@@ -1115,7 +1152,7 @@
           sajatTorok
             ? [pts[1], pts[2], ...(terv[def.side].ut(def.id, tr) || [[bx, yb], [tx, g.y(tr)]]), [P.kozep, g.y(tr)]]
             // nem saját torkú ág: a fővonal bejáratán át éri el a vágányt
-            : [pts[1], pts[2], pts[3], ...(terv[def.side].ut("fo", tr) || [[fx, g.mid], [tx, g.y(tr)]]), [P.kozep, g.y(tr)]],
+            : [pts[1], pts[2], pts[3], ...(terv[def.side].ut("fo", tr) || [[fx, sd.in], [tx, g.y(tr)]]), [P.kozep, g.y(tr)]],
       };
     }
 
@@ -1190,7 +1227,7 @@
       for (const side of ["L", "R"]) {
         const sd = sides[side];
         if (!sd.double) {
-          trk(side === "L" ? `M${P.szel.L} ${g.mid}H${P.sx.L}` : `M${P.sx.R} ${g.mid}H${P.szel.R}`);
+          trk(side === "L" ? `M${P.szel.L} ${sd.in}H${P.sx.L}` : `M${P.sx.R} ${sd.in}H${P.szel.R}`);
           continue;
         }
         const sx = P.sx[side], ex = P.szel[side];
@@ -1321,8 +1358,11 @@
         svgSignal(s, "B", W - 145, sides.R.in, -1) +
         svgButton("A", 100, sides.L.in) +
         svgButton("B", W - 100, sides.R.in) +
-        svgButton("VL", 52, g.mid + 105, "exit") +
-        svgButton("VR", W - 52, g.mid + 105, "exit");
+        // a vonali kijárati cél gombjai a rajz alá kerülnek: a vonali vágány magassága
+        // állomásonként más (Pusztaszabolcson a III–IV. az átmenő), így a pult közepéhez
+        // kötve rálógtak a vágányokra
+        svgButton("VL", 52, hb - 58, "exit") +
+        svgButton("VR", W - 52, hb - 58, "exit");
       html += svgButton("W-L", 265, 75, "switch") + svgButton("W-R", W - 265, 75, "switch");
       sim.trains.forEach((t) => {
         const p = sim.permissions[t.id];
@@ -1337,7 +1377,7 @@
           let pts, head;
           const side = t.dir === 1 ? "L" : "R",
             sd = sides[side],
-            ty = sd.double ? sd.laneY(p.lane) : g.mid;
+            ty = sd.double ? sd.laneY(p.lane) : sd.in;
           if (t.phase === "approach") {
             pts = t.dir === 1 ? [[-80, ty], [90, ty]] : [[W + 80, ty], [W - 90, ty]];
             head = 35 + t.progress * length(pts);
