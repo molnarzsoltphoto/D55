@@ -744,18 +744,9 @@
       let fel = tracks.filter((t) => yOf(t) < yA).sort((a, b) => yOf(b) - yOf(a)),
         le = tracks.filter((t) => yOf(t) > yB).sort((a, b) => yOf(a) - yOf(b));
       const kozt = tracks.filter((t) => yOf(t) >= yA && yOf(t) <= yB);
-      // Ha minden vágány egy oldalra esik, a két vezérvágány közt elosztjuk őket, különben
-      // a másik a semmibe tartana. A csoporttól távolabbi vezérvágány kapja a közelebbi
-      // vágányokat: így a két váltósor párhuzamos marad, és nem keresztezik egymást.
-      if (yA !== yB && !fel.length && le.length > 1) {
-        const n = Math.floor(le.length / 2);
-        fel = le.slice(0, n);
-        le = le.slice(n);
-      } else if (yA !== yB && !le.length && fel.length > 1) {
-        const n = Math.floor(fel.length / 2);
-        le = fel.slice(0, n);
-        fel = fel.slice(n);
-      }
+      // Egy bejárat egy váltósor: az egymás utáni vágányok ugyanabból a vezérvágányból
+      // ágaznak ki, nem osztjuk szét a párt két párhuzamos váltósorra. A másik
+      // vezérvágány a torki átmenő kitérőn át éri el ugyanezt a váltósort.
       const f = letra(A, fel, vegX, tx, irany, yOf),
         l = letra(B, le, vegX, tx, irany, yOf),
         ki = { d: [...f.d, ...l.d], ut: new Map([...f.ut, ...l.ut]), peel: new Map([...f.peel, ...l.peel]) };
@@ -781,20 +772,6 @@
       // rajzolunk oda semmit: az csonk lenne a levegőben.
       if (yA === yB && A[0] !== B[0] && [...ki.ut.values()].some((u) => u[0] === B))
         ki.d.push(`M${A[0]} ${yA}H${B[0]}`);
-      // Ha egy vezérvágány így sem kap vágányt (egyetlen vágány jut a bejáratnak), nem
-      // hagyjuk csonkán: beleszalad a szomszéd váltósorába, ahogy a kétvágányú bejáratok
-      // összeérnek. Csonkán hagyva a semmibe tartana.
-      if (yA !== yB) {
-        const hasznalt = new Set([...ki.ut.values()].map((u) => u[0][1]));
-        for (const [U, V, sor] of [[A, B, l], [B, A, f]]) {
-          if (hasznalt.has(U[1]) || !hasznalt.has(V[1]) || !sor.d[0]) continue;
-          const n = (sor.d[0].match(/-?\d+(\.\d+)?/g) || []).map(Number);
-          if (n.length < 4) continue;
-          const [x1, y1, x2, y2] = n,
-            r = Math.min(0.45, 90 / Math.max(1, Math.abs(x2 - x1)));
-          ki.d.push(`M${U[0]} ${U[1]}L${Math.round(x1 + (x2 - x1) * r)} ${Math.round(y1 + (y2 - y1) * r)}`);
-        }
-      }
       return ki;
     }
     // Egy állomásvég torka. Minden bejárat (a fővonal, és minden saját torkú ág) a hozzá
