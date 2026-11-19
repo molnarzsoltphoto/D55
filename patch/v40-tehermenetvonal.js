@@ -12,11 +12,13 @@
   // A menetvonal a vonat tervébe kerül (plan), így a motor a várakozásokat magától betartja.
   //
   // Nem hiteles: ez nem a valódi tehervonati menetrend, hanem a személyforgalom réseibe illesztett,
-  // számított menetvonal. A számítás 60 km/h-val dolgozik, így a tényleges (60–100) sebesség mellett a
-  // vonat legfeljebb korábban hagyja el a szakaszt, mint a menetvonala – ütközést nem okoz.
+  // számított menetvonal. A számítás 70 km/h-val dolgozik a vonat 80 km/h-s sebessége mellett, így a
+  // vonat legfeljebb korábban hagyja el a szakaszt, mint a menetvonala – ütközést nem okoz. Korábban
+  // 60-nal számolt: az indokolatlanul hosszú szakaszfoglalás miatt a 48 tervezett menetből 14-nek nem
+  // volt hova illeszkednie, és a megtalált menetvonalak is szűkebb résbe kerültek.
   const HEADWAY = 3; // perc elő- és utóidő a személyvonati menetek körül
   const MAX_VARAKOZAS = 35; // perc: ennél többet egy állomáson nem várakoztatunk
-  const SZAMITASI_SEBESSEG = 60; // km/h
+  const SZAMITASI_SEBESSEG = 70; // km/h: a menetvonal ezzel készül, a vonat 80-nal mehet
   const ALLOMASI_IDO = 2; // perc tartózkodás forgalmi szolgálati helyen
 
   function install() {
@@ -214,9 +216,20 @@
         try { lista.push(...viszonylatiSzolgalatok(this)); } catch (e) { console.warn("teherviszonylat:", e); }
       }
       this.nextFreight = Infinity;
+      // A viszonylati tehermenetek a kiágazási menetrenden át keletkeznek, és eddig hiányzott
+      // róluk a menetvonal-jelzés (azt csak a véletlen teher kapta meg). Az elsőbbségi rend
+      // emiatt félreállította őket minden állomáson a következő személyvonat elől, pedig a
+      // menetvonaluk eleve annak a résébe illeszkedik.
+      for (const t of this.trains)
+        if (t.branchService && t.kind === "freight" && !t.menetvonal && (t.plan || []).length > 1) t.menetvonal = true;
       return prevReal.call(this);
     };
 
+    // A viszonylati tehermenetek a kiágazási menetrenden át keletkeznek (branchTraffic), és
+    // eddig hiányzott róluk a menetvonal-jelzés. Az elsőbbségi rend emiatt úgy kezelte őket,
+    // mint a véletlen tehervonatot: minden állomáson 12 percre előre megvárakoztatta őket a
+    // következő személyvonat miatt, állomásonként negyedórát gyűjtve. Pedig a menetvonaluk
+    // eleve a személyforgalom résébe illeszkedik — azt tartani kell, nem félreállni előle.
     const prevAdd = P.add;
     P.add = function (at, dir, dep) {
       const t = prevAdd.call(this, at, dir, dep);

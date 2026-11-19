@@ -51,6 +51,11 @@
       const horizont = sajatSzint === 0 ? SZEMELY_HORIZONT : IC_HORIZONT;
       for (const p of this.trains) {
         if (p.id === t.id || p.finished || szint(p) <= sajatSzint) continue;
+        // Menetvonallal közlekedő vonat azonos irányban nem áll félre: a menetvonala eleve a
+        // személyforgalom résébe van illesztve, az utolérésvizsgálat ezt másodszor is levonná,
+        // és a tehervonat állomásonként negyedórát gyűjtött a félreállásból. Ellenirányban (az
+        // egyvágányú szakasz keresztezésénél) viszont rá is vonatkozik a sorrend.
+        if (p.dir === t.dir && t.menetvonal) continue;
         // Utolérés megelőzése: ha a magasabb rangú vonat a tervek szerint velünk egy időben (vagy
         // előbb) érne a következő állomásra, nem állunk elé, mert az állomásközben már nem előzhet.
         if (p.dir === t.dir) {
