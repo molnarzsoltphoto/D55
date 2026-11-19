@@ -958,7 +958,12 @@
     // ezért állomásonként egyszer számoljuk ki.
     const tervCache = new Map();
     // a tesztek innen kérik le az állomás torokrajzát (rajz ↔ motor összevetéshez)
-    setTimeout(() => { globalThis.D55Terv = allomasTerv; globalThis.D55Oldalak = lineSides; globalThis.D55Pult = pult; }, 0);
+    setTimeout(() => {
+      globalThis.D55Terv = allomasTerv;
+      globalThis.D55Oldalak = lineSides;
+      globalThis.D55Pult = pult;
+      globalThis.D55Ut = routePoints;
+    }, 0);
     function allomasTerv(s) {
       if (tervCache.has(s)) return tervCache.get(s);
       const g = geom(s), P = pult(s), sides = lineSides(s), terv = {}, bySide = {};

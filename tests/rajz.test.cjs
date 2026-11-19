@@ -82,10 +82,40 @@ const { chromium } = require('playwright');
     }
     return out;
   });
+  // A KÖFI állomásrajza ugyanabból a torokrajzból dolgozik, mint a pult: a vágánysorrendnek
+  // egyeznie kell, és a torok nem lóghat ki az állomásdobozból.
+  const kofi = await p.evaluate(() => {
+    setView("kofi");
+    render();
+    const L = NW.layout, baj = [];
+    for (const el of NW.svg.querySelectorAll("[data-nettrack]")) {
+      const [sid] = el.getAttribute("data-nettrack").split(":");
+      const n = L.nodes[sid], st = STATIONS[sid];
+      const d = el.previousElementSibling?.getAttribute("d") || "";
+      const nums = (d.match(/-?\d+(\.\d+)?/g) || []).map(Number);
+      const xs = nums.filter((_, i) => i % 2 === 0), ys = nums.filter((_, i) => i % 2 === 1);
+      if (!xs.length) continue;
+      const top = n.y - (st.tracks.length - 1) * 13 - 60, bot = n.y + (st.tracks.length - 1) * 13 + 50;
+      if (xs.some((x) => x < n.x - 1 || x > n.x + 361)) baj.push(st.name + ": a torok kilóg oldalt");
+      if (ys.some((y) => y < top - 1 || y > bot + 1)) baj.push(st.name + ": a torok kilóg függőlegesen");
+    }
+    for (const sid of L.ids) {
+      const g = geom(sid), n = L.nodes[sid];
+      const a = [...STATIONS[sid].tracks].sort((x, y) => n.ty(x) - n.ty(y)).join();
+      const b = [...g.tracks].sort((x, y) => g.y(x) - g.y(y)).join();
+      if (a !== b) baj.push(STATIONS[sid].name + ": a KÖFI vágánysorrendje nem a pultét követi");
+    }
+    return [...new Set(baj)];
+  });
+  if (kofi.length) {
+    console.log(JSON.stringify(kofi, null, 1));
+    process.exitCode = 1;
+  }
+
   if (r.length) {
     console.log(JSON.stringify(r, null, 1));
     process.exitCode = 1;
   }
-  console.log(JSON.stringify({ eltérés: r.length }));
+  console.log(JSON.stringify({ eltérés: r.length, kofi: kofi.length }));
   await b.close();
 })();
