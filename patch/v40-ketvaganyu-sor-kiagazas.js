@@ -739,16 +739,27 @@
     // Egy bejárat (vonali vágánypár vagy saját torkú ág) váltósorai. bazisok: a felső és az
     // alsó vonali vágány vége; fölötte és alatta egy-egy létra, a bázis magasságában lévő
     // vágány pedig az átmenő fővágány: oda a vonal egyenesen befut.
-    function bejarat(bazisok, tracks, vegX, tx, irany, yOf) {
+    function bejarat(bazisok, tracks, vegX, tx, irany, yOf, szomszed) {
       const [A, B] = bazisok, yA = A[1], yB = B[1];
       let fel = tracks.filter((t) => yOf(t) < yA).sort((a, b) => yOf(b) - yOf(a)),
         le = tracks.filter((t) => yOf(t) > yB).sort((a, b) => yOf(a) - yOf(b));
       const kozt = tracks.filter((t) => yOf(t) >= yA && yOf(t) <= yB);
+      // Ha a pár egyik vezérvágányára egy vágány sem jut (mert a csoport egészen a másik
+      // oldalára esik), a csoporttal szomszédos vágányt kapja meg: Kelenföldön a Győr
+      // felőli 1. vágány a X-re megy. Enélkül a torokban a semmibe tartana.
+      let felVeg = vegX, leVeg = vegX;
+      // a pótolt váltó rövid: a saját dőlésével ér a vágányra, nem a váltósor végéig fut,
+      // különben a szomszéd váltósorával párhuzamosan, vele egy pontba futna be
+      const rovid = (b, t) => b[0] + irany * Math.abs(yOf(t) - b[1]) * 1.4;
+      if (szomszed) {
+        if (!fel.length && !kozt.some((t) => yOf(t) === yA) && le.length) { fel = [szomszed]; felVeg = rovid(A, szomszed); }
+        else if (!le.length && !kozt.some((t) => yOf(t) === yB) && fel.length) { le = [szomszed]; leVeg = rovid(B, szomszed); }
+      }
       // Egy bejárat egy váltósor: az egymás utáni vágányok ugyanabból a vezérvágányból
       // ágaznak ki, nem osztjuk szét a párt két párhuzamos váltósorra. A másik
       // vezérvágány a torki átmenő kitérőn át éri el ugyanezt a váltósort.
-      const f = letra(A, fel, vegX, tx, irany, yOf),
-        l = letra(B, le, vegX, tx, irany, yOf),
+      const f = letra(A, fel, felVeg, tx, irany, yOf),
+        l = letra(B, le, leVeg, tx, irany, yOf),
         ki = { d: [...f.d, ...l.d], ut: new Map([...f.ut, ...l.ut]), peel: new Map([...f.peel, ...l.peel]) };
       for (const t of kozt) {
         const y = yOf(t);
@@ -833,7 +844,18 @@
             (be.enged && be.enged.includes(t) && futam[sorrend.indexOf(tulaj.get(t))] !== futam[i]),
         );
         const bazisok = be.ys.length > 1 ? be.ys.map((y) => [be.x, y]) : [[be.x, be.ys[0]], [be.x + 46 * irany, be.ys[0]]];
-        const r = bejarat(bazisok, sajat, tx - 24 * i * irany, tx, irany, g.y);
+        // a csoporttal szomszédos vágány: ezt kapja a különben üresen maradó vezérvágány
+        const ys = sajat.map((t) => g.y(t)),
+          kinn = be.ys.length > 1 && be.ys[0] !== be.ys[1] && sajat.length,
+          lenti = kinn && Math.min(...ys) > Math.max(...be.ys),
+          fenti = kinn && Math.max(...ys) < Math.min(...be.ys),
+          sorrendY = (a, b) => g.y(a) - g.y(b),
+          szomszed = lenti
+            ? g.tracks.filter((t) => g.y(t) < Math.min(...ys)).sort(sorrendY).at(-1)
+            : fenti
+              ? g.tracks.filter((t) => g.y(t) > Math.max(...ys)).sort(sorrendY)[0]
+              : null;
+        const r = bejarat(bazisok, sajat, tx - 24 * i * irany, tx, irany, g.y, szomszed);
         be.terv = r;
         d.push(...r.d);
         // ahol több bejáratnak is van váltója ugyanarra a vágányra, a vágány vízszintese
