@@ -93,6 +93,13 @@
         if (x.station < station && !ki.includes("L")) ki.push("L");
         if (x.station > station && !ki.includes("R")) ki.push("R");
       }
+      // Ha a szerelvény itt fordul és a párja a másik irányba indul tovább, annak a
+      // toroknak is el kell érnie a vágányt: különben a forduló nem jöhetne létre
+      // (Kelenföldön a Pécs felől érkező a XI–XV-re állva nem tudna a Déli felé elmenni).
+      if (train?.forduloIrany != null && train.endStation === station) {
+        const o = train.forduloIrany === 1 ? "R" : "L";
+        if (!ki.includes(o)) ki.push(o);
+      }
       return ki;
     };
 

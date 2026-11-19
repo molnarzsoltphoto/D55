@@ -32,7 +32,7 @@ const MAG = Number(process.argv[3] || 1);
   const JELEK = [
     "_v40DoubleQueueBranches", "_v40Korlat", "_v40Elsobbseg", "_v40Forgalom",
     "_v40Ellenirany", "_v40Elkerulo", "_v40EloEngedely", "_v40Tehermenetvonal",
-    "_v40InduloHelyzet",
+    "_v40InduloHelyzet", "_v40Fordulo",
   ];
   try {
     await p.waitForFunction(
@@ -64,13 +64,19 @@ const MAG = Number(process.argv[3] || 1);
     const latott = new Map();
     for (let i = 0; i < 24 * 60 * 10; i++) {
       sim.tick(0.1);
+      // A célba érést minden ütemben nézzük, nem percenként: a végállomáson forduló
+      // szerelvény a beérkezés után perceken belül új vonatszámot kap, és a percenkénti
+      // mintavétel ezt a néhány másodpercet átugorhatja — ilyenkor a befejezett menet
+      // tévesen befejezetlennek látszana.
+      for (const t of sim.trains) {
+        const oszt = t.kind === "freight" || !t.menetrendi ? "teher" : ic(t) ? "IC" : "személy";
+        const volt = latott.get(t.id);
+        if (volt?.kesz) continue; // a befejezéskori késése rögzült
+        latott.set(t.id, { oszt, kesz: t.finished, delay: t.delay || 0 });
+      }
       if (i % 10) continue;
       for (const t of sim.trains) {
-        if (t.kind === "freight" || !t.menetrendi) {
-          latott.set(t.id, { oszt: "teher", kesz: t.finished, delay: t.delay || 0 });
-          continue;
-        }
-        latott.set(t.id, { oszt: ic(t) ? "IC" : "személy", kesz: t.finished, delay: t.delay || 0 });
+        if (t.kind === "freight" || !t.menetrendi) continue;
         if (t.finished || t.phase !== "parked") continue;
         const terv = t.plan?.find((x) => x.station === t.at);
         if (!terv || t.at === t.endStation || sim.time <= terv.dep + 0.001) continue;
