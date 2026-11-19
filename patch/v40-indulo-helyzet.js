@@ -20,7 +20,15 @@
   function install() {
     if (typeof Simulation === "undefined" || typeof sim === "undefined") return false;
     const P = Simulation.prototype;
+    // A javítórétegek külön-külön települnek; ez a réteg csak akkor dolgozhat, ha mind
+    // megvan, különben a vonal hiányos szabályokkal indulna (a kiágazási menetrend
+    // például a nagy rajzoló réteghez tartozik: nélküle egyetlen ági vonat sem keletkezne).
+    const KELL = [
+      "_v40DoubleQueueBranches", "_v40Korlat", "_v40Elsobbseg", "_v40Forgalom",
+      "_v40Ellenirany", "_v40Elkerulo", "_v40EloEngedely", "_v40Tehermenetvonal",
+    ];
     if (P._v40InduloHelyzet) return true;
+    if (!KELL.every((j) => P[j])) return false;
     if (typeof P.realTraffic !== "function" || typeof globalThis.timetableDistance !== "function") return false;
     P._v40InduloHelyzet = true;
 

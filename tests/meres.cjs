@@ -32,7 +32,7 @@ const MAG = Number(process.argv[3] || 1);
   const JELEK = [
     "_v40DoubleQueueBranches", "_v40Korlat", "_v40Elsobbseg", "_v40Forgalom",
     "_v40Ellenirany", "_v40Elkerulo", "_v40EloEngedely", "_v40Tehermenetvonal",
-    "_v40InduloHelyzet", "_v40Fordulo",
+    "_v40InduloHelyzet", "_v40Fordulo", "_v40Bemelegites",
   ];
   try {
     await p.waitForFunction(
