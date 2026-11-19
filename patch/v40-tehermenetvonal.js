@@ -17,7 +17,7 @@
   // 60-nal számolt: az indokolatlanul hosszú szakaszfoglalás miatt a 48 tervezett menetből 14-nek nem
   // volt hova illeszkednie, és a megtalált menetvonalak is szűkebb résbe kerültek.
   const HEADWAY = 3; // perc elő- és utóidő a személyvonati menetek körül
-  const MAX_VARAKOZAS = 35; // perc: ennél többet egy állomáson nem várakoztatunk
+  const MAX_VARAKOZAS = 60; // perc: ennél többet egy állomáson nem várakoztatunk
   const SZAMITASI_SEBESSEG = 70; // km/h: a menetvonal ezzel készül, a vonat 80-nal mehet
   const ALLOMASI_IDO = 2; // perc tartózkodás forgalmi szolgálati helyen
 
@@ -152,6 +152,26 @@
     ];
     const NAPI = 6; // viszonylatonként és irányonként ennyi menet naponta
 
+    // A teher nagy része éjszaka megy. A személyforgalom a Pusztaszabolcs–Kelenföld
+    // szakaszon 1 és 4 óra közt gyakorlatilag eltűnik (óránként 5 megállás a nappali 70
+    // helyett), 22 és 1 közt is ritkás; a 6-8 és a 16-19 közti csúcsot kerüljük.
+    // Hat menetből négy az éjszakai ablakba kerül, kettő a délelőtti lanyhulásba.
+    const EJSZAKA = [21 * 60, 29 * 60], // 21:00–05:00, átfordul éjfélen
+      NAPPAL = [10 * 60, 14 * 60],
+      EJSZAKAI = 4; // hatból ennyi megy éjjel
+
+    // Nyers indulási idő: az ablakon belül egyenletesen, viszonylatonként és irányonként
+    // elcsúsztatva, hogy a nyolc viszonylatirány ne egyszerre induljon.
+    function nyersIdo(i, vissza, k) {
+      const ejjel = k < EJSZAKAI,
+        [a, b] = ejjel ? EJSZAKA : NAPPAL,
+        n = ejjel ? EJSZAKAI : NAPI - EJSZAKAI,
+        j = ejjel ? k : k - EJSZAKAI,
+        lepes = (b - a) / n,
+        eltolas = (((i * 2 + (vissza ? 1 : 0)) % 8) / 8) * lepes * 0.9;
+      return Math.round(a + lepes * j + eltolas) % 1440;
+    }
+
     // A megtervezett tehermenetvonalat is beírjuk a foglaltsági táblába, hogy a következő
     // teher már ehhez is rést keressen, ne csak a személyforgalomhoz.
     function rogzit(plan, dir) {
@@ -173,11 +193,15 @@
             hova = vissza ? 1 : cel,
             dir = honnan === hova ? (vissza ? -1 : 1) : hova > honnan ? 1 : -1;
           for (let k = 0; k < NAPI; k++) {
-            // nyers indulási idő, viszonylatonként eltolva; innen keresünk szabad menetvonalat
-            const nyers = (i * 41 + (vissza ? 137 : 0) + k * Math.round(1440 / NAPI)) % 1440;
+            const nyers = nyersIdo(i, vissza, k);
             let plan = null;
-            for (let csuszas = 0; csuszas <= 240 && !plan; csuszas += 5) {
-              const t0 = (nyers + csuszas) % 1440;
+            // Felváltva keresünk későbbi és korábbi indulást, így a menet az ablakában marad:
+            // csak előre csúsztatva egy hajnali teher a reggeli csúcsba sodródhatna.
+            const csuszasok = [0];
+            for (let d = 5; d <= 120; d += 5) csuszasok.push(d, -d);
+            for (const csuszas of csuszasok) {
+              if (plan) break;
+              const t0 = ((nyers + csuszas) % 1440 + 1440) % 1440;
               plan =
                 honnan === hova
                   ? [{ station: honnan, arr: t0, dep: t0 + ALLOMASI_IDO }]
