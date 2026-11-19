@@ -96,7 +96,7 @@ const { chromium } = require('playwright');
       const xs = nums.filter((_, i) => i % 2 === 0), ys = nums.filter((_, i) => i % 2 === 1);
       if (!xs.length) continue;
       const top = n.y - (st.tracks.length - 1) * 13 - 60, bot = n.y + (st.tracks.length - 1) * 13 + 50;
-      if (xs.some((x) => x < n.x - 1 || x > n.x + 361)) baj.push(st.name + ": a torok kilóg oldalt");
+      if (xs.some((x) => x < n.x - 1 || x > n.x + n.w + 1)) baj.push(st.name + ": a torok kilóg oldalt");
       if (ys.some((y) => y < top - 1 || y > bot + 1)) baj.push(st.name + ": a torok kilóg függőlegesen");
     }
     for (const sid of L.ids) {
@@ -104,6 +104,48 @@ const { chromium } = require('playwright');
       const a = [...STATIONS[sid].tracks].sort((x, y) => n.ty(x) - n.ty(y)).join();
       const b = [...g.tracks].sort((x, y) => g.y(x) - g.y(y)).join();
       if (a !== b) baj.push(STATIONS[sid].name + ": a KÖFI vágánysorrendje nem a pultét követi");
+    }
+    // Semmi nem lóghat a levegőbe: a torokrajz minden vonalvége vagy a doboz szélén, vagy a
+    // vágányak egyenes szakaszánál, vagy a kiágazás cimkéjénél van, vagy másik vonal folytatja.
+    for (const sid of L.ids) {
+      const n = L.nodes[sid], utak = [];
+      for (const el of NW.svg.querySelectorAll(`[data-nettrack^="${sid}:"]`)) {
+        const pr = el.previousElementSibling;
+        if (pr && pr.tagName === "path") utak.push(pr.getAttribute("d"));
+      }
+      const cimkeVeg = new Set();
+      for (const g2 of NW.svg.querySelectorAll("[data-linebranch]")) {
+        const def = LineBranches.byId(g2.getAttribute("data-linebranch"));
+        if (!def || def.station !== sid) continue;
+        for (const el of g2.querySelectorAll("path")) {
+          const d = el.getAttribute("d");
+          utak.push(d);
+          const m = /H(-?[\d.]+)$/.exec(d);
+          if (m) cimkeVeg.add(Number(m[1]).toFixed(0));
+        }
+      }
+      const K = (x, y) => x.toFixed(0) + "," + y.toFixed(0), szak = new Set();
+      for (const d of utak) {
+        let cx = 0, cy = 0;
+        for (const t of d.match(/[MLH][-\d. ]+/g) || []) {
+          const c = t.slice(1).trim().split(/[ ,]+/).map(Number);
+          const nx = c[0], ny = t[0] === "H" ? cy : c[1];
+          if (t[0] !== "M" && K(cx, cy) !== K(nx, ny)) {
+            const a2 = K(cx, cy), b2 = K(nx, ny);
+            szak.add(a2 < b2 ? a2 + "|" + b2 : b2 + "|" + a2);
+          }
+          cx = nx; cy = ny;
+        }
+      }
+      const fok = {};
+      for (const s of szak) for (const v of s.split("|")) fok[v] = (fok[v] || 0) + 1;
+      const szabad = (x) =>
+        Math.abs(x - n.x) < 2 || Math.abs(x - (n.x + n.w)) < 2 ||
+        Math.abs(x - (n.x + n.bal)) < 2 || Math.abs(x - (n.x + n.bal + 216)) < 2 ||
+        cimkeVeg.has(x.toFixed(0));
+      for (const [v, f] of Object.entries(fok))
+        if (f === 1 && !szabad(Number(v.split(",")[0])))
+          baj.push(STATIONS[sid].name + ": a KÖFI-ban a levegőbe lóg egy vonal (" + v + ")");
     }
     return [...new Set(baj)];
   });
