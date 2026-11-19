@@ -62,6 +62,10 @@ const MAG = Number(process.argv[3] || 1);
       return !!(x && x.clear);
     };
     const latott = new Map();
+    // Kiágazási szakasz, amit már nem létező vonat tart foglalva: ilyenkor arra a
+    // kiágazásra soha többé nem kap engedélyt vonat, és a csatlakozó állomás vágányai
+    // egyesével telnek meg. Egy bemelegítési hiba így fektette meg a vonalat.
+    const agSzivargas = new Set();
     for (let i = 0; i < 24 * 60 * 10; i++) {
       sim.tick(0.1);
       // A célba érést minden ütemben nézzük, nem percenként: a végállomáson forduló
@@ -73,6 +77,12 @@ const MAG = Number(process.argv[3] || 1);
         const volt = latott.get(t.id);
         if (volt?.kesz) continue; // a befejezéskori késése rögzült
         latott.set(t.id, { oszt, kesz: t.finished, delay: t.delay || 0 });
+      }
+      if (i % 100 === 0) {
+        const el = new Set(sim.trains.map((t) => t.id));
+        for (const [k, b] of Object.entries(sim.lineBranches || {}))
+          for (const m of ["edge", "edgeIn", "edgeOut"])
+            if (b[m] && !el.has(b[m])) agSzivargas.add(k + "/" + m + "=" + b[m]);
       }
       if (i % 10) continue;
       for (const t of sim.trains) {
@@ -100,7 +110,7 @@ const MAG = Number(process.argv[3] || 1);
     };
     return {
       IC: osztaly("IC", 10), szemely: osztaly("személy", 15), teher: osztaly("teher", 30),
-      varakozasOka: ok,
+      varakozasOka: ok, agSzivargas: [...agSzivargas],
     };
   });
   console.log(JSON.stringify({ fajl: path.basename(path.dirname(FAJL)), mag: MAG, ...r }));

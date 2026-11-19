@@ -6094,18 +6094,19 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
     if (typeof P.realTraffic !== "function" || typeof AutomaticBlocks !== "function") return false;
     P._v40Bemelegites = true;
 
-    // Éjféltől játsszuk le, de legfeljebb ennyit. A 6:00-s szolgálatkezdés — a játék
-    // alapértelmezése — pont belefér. Későbbi kezdésnél nem melegítünk: a fél-egy napnyi
-    // lejátszás másodpercekre megállítaná a betöltést, és ilyen hosszan az automata
-    // forgalomirányítás nem tartja a menetrendet. Akkor marad a 0.26 szerinti kép: a már
-    // elindult menetek a menetrendi helyükön, állomásközben.
-    const MAX_HOSSZ = 360;
+    // Meddig visszafelé játsszuk le a forgalmat: hat óra, vagy az aznapi éjfélig, ha az
+    // közelebb van. A 6:00-s szolgálatkezdésnél — a játék alapértelmezésénél — ez pont
+    // éjfél. Ennyi forgalom lejátszása 3-4 másodperc; egy egész napé tizenöt lenne.
+    const HOSSZ = 360;
 
     function bemelegit(s) {
       const cel = s.serviceStart,
-        kezd = Math.floor(cel / 1440) * 1440;
+        kezd = Math.max(Math.floor(cel / 1440) * 1440, cel - HOSSZ);
       // csak érintetlen, most létrehozott szolgálatnál: betöltött játékállást nem bántunk
-      if (s._v40Bemelegitve === cel || !(cel > kezd) || cel - kezd > MAX_HOSSZ || s.time !== cel) return;
+      if (s._v40Fut || s._v40Bemelegitve === cel || !(cel > kezd) || s.time !== cel) return;
+      // A bemelegítés alatt a serviceStart a kezdőidőre áll, és a lejátszás realTraffic-et
+      // hív: ez újra ide jutna, és a bemelegítés önmagát hívná egyre korábbi kezdéssel.
+      s._v40Fut = true;
       s._v40Bemelegitve = cel;
 
       const terulet = s.playerControl, auto = s.auto, nezet = s.view;
@@ -6116,6 +6117,12 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
       s.edges = {};
       s.routes = {};
       s.blockSystem = new AutomaticBlocks();
+      // A kiágazások foglaltságát is nullázni kell. Enélkül az előző (konstruktorbeli)
+      // bemelegítés menetei bentragadtak a kiágazási szakaszokon, és mivel a vonatok
+      // eltűntek, az a foglalás soha nem oldódott fel: az adott kiágazásra onnantól
+      // egyetlen vonat sem kapott engedélyt, és a csatlakozó állomás vágányai egyesével
+      // teltek meg a várakozó menetekkel.
+      s.lineBranches = {};
       s.ttSpawned = {};
       if (s.btSpawned) s.btSpawned = {};
       s.archive = [];
@@ -6133,6 +6140,7 @@ Nem végeztünk teljes napi stressztesztet vagy üzemi váltófüggőségi hitel
       } catch (e) {
         console.warn("bemelegítés:", e);
       } finally {
+        s._v40Fut = false;
         s.playerControl = terulet;
         s.auto = auto;
         s.view = nezet;
